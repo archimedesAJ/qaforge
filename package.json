@@ -1,0 +1,25 @@
+{
+  "name": "qaforge",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w apps/api\" \"npm run dev -w apps/web\"",
+    "build": "npm run build -w packages/types && npm run build -w apps/api && npm run build -w apps/web",
+    "lint": "eslint apps/ packages/ --ext .ts,.tsx",
+    "test": "npm run test -w apps/api",
+    "db:migrate": "npm run db:migrate -w packages/db",
+    "db:generate": "npm run db:generate -w packages/db",
+    "db:studio": "npm run db:studio -w packages/db"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "concurrently": "^8.2.0",
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.0",
+    "typescript": "^5.4.0"
+  }
+}

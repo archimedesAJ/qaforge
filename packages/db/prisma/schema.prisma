@@ -1,0 +1,211 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Users & projects
+// ─────────────────────────────────────────────────────────────
+
+model User {
+  id            String          @id @default(uuid())
+  email         String          @unique
+  name          String
+  passwordHash  String
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  ownedProjects  Project[]       @relation("OwnedProjects")
+  memberships    ProjectMember[]
+  casesCreated   TestCase[]      @relation("CaseAuthor")
+}
+
+model Project {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  ownerId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner     User            @relation("OwnedProjects", fields: [ownerId], references: [id])
+  members   ProjectMember[]
+  suites    TestSuite[]
+  cases     TestCase[]
+  runs      TestRun[]
+}
+
+model ProjectMember {
+  projectId String
+  userId    String
+  role      String   @default("editor") // admin | editor | viewer
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, userId])
+}
+
+model ApiKey {
+  id         String    @id @default(uuid())
+  projectId  String
+  name       String
+  keyHash    String    @unique
+  scope      String    @default("write:results")
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+}
+
+// ─────────────────────────────────────────────────────────────
+// Test cases & suites
+// ─────────────────────────────────────────────────────────────
+
+model TestSuite {
+  id        String      @id @default(uuid())
+  projectId String
+  name      String
+  parentId  String?
+  createdAt DateTime    @default(now())
+
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent    TestSuite?  @relation("SuiteTree", fields: [parentId], references: [id])
+  children  TestSuite[] @relation("SuiteTree")
+  cases     TestCase[]
+}
+
+model TestCase {
+  id            String    @id @default(uuid())
+  projectId     String
+  suiteId       String?
+  title         String
+  type          String    // manual | functional | ui_auto | api | perf | exploratory
+  priority      String    @default("p2")
+  version       Int       @default(1)
+  steps         Json?
+  tags          Json      @default("[]")
+  preconditions String?
+  archived      Boolean   @default(false)
+  createdById   String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  project    Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  suite      TestSuite? @relation(fields: [suiteId], references: [id])
+  createdBy  User       @relation("CaseAuthor", fields: [createdById], references: [id])
+  results    RunResult[]
+}
+
+// ─────────────────────────────────────────────────────────────
+// Runs & results
+// ─────────────────────────────────────────────────────────────
+
+model TestRun {
+  id          String    @id @default(uuid())
+  projectId   String
+  name        String
+  env         String
+  source      String    // manual | ci_github | ci_gitlab | api
+  status      String    @default("open")
+  triggeredBy String?
+  startedAt   DateTime  @default(now())
+  endedAt     DateTime?
+
+  project  Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  results  RunResult[]
+  session  ExploratorySession?
+}
+
+model RunResult {
+  id               Int       @id @default(autoincrement())
+  runId            String
+  testCaseId       String
+  testCaseVersion  Int
+  status           String    // pass | fail | blocked | skipped | not_applicable
+  durationMs       Int?
+  stepsLog         Json?
+  attachments      Json?
+  failureNote      String?
+  errorMessage     String?
+  stackTrace       String?
+  executedAt       DateTime  @default(now())
+
+  run      TestRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
+  testCase TestCase  @relation(fields: [testCaseId], references: [id])
+  defect   Defect?
+
+  @@index([runId])
+  @@index([testCaseId])
+  @@index([runId, status])
+}
+
+model Defect {
+  id          String    @id @default(uuid())
+  runResultId Int       @unique
+  externalRef String?
+  tracker     String    // jira | github | linear | internal
+  status      String    @default("open")
+  createdAt   DateTime  @default(now())
+
+  runResult RunResult @relation(fields: [runResultId], references: [id])
+}
+
+model ExploratorySession {
+  id         String    @id @default(uuid())
+  runId      String    @unique
+  charter    String
+  testerId   String
+  startedAt  DateTime  @default(now())
+  endedAt    DateTime?
+  sessionLog Json?
+  debrief    String?
+  verdict    String?   // thorough | partial | incomplete
+
+  run TestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────────────────────
+// Pre-aggregated insights (written on run close, read on dashboard)
+// ─────────────────────────────────────────────────────────────
+
+model CoverageSnapshot {
+  id          String    @id @default(uuid())
+  projectId   String
+  testCaseId  String
+  passRate    Float?
+  lastRunAt   DateTime?
+  state       String    // healthy | stale | failing
+  computedAt  DateTime  @default(now())
+
+  @@unique([projectId, testCaseId])
+  @@index([projectId])
+}
+
+model FlakinessScore {
+  id           String   @id @default(uuid())
+  projectId    String
+  testCaseId   String
+  score        Float    // 0.0 – 1.0
+  runsAnalysed Int
+  lastSeenAt   DateTime
+  computedAt   DateTime @default(now())
+
+  @@unique([projectId, testCaseId])
+  @@index([projectId, score])
+}
+
+model TrendSeries {
+  id        String   @id @default(uuid())
+  projectId String
+  date      DateTime @db.Date
+  env       String?
+  suiteId   String?
+  passRate  Float
+  totalRuns Int
+
+  @@unique([projectId, date, env, suiteId])
+  @@index([projectId, date])
+}
