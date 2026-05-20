@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, requireRole } from '../middleware/auth.js';
 import { aggregateOnRunClose } from '../services/aggregation.js';
 import { parseJUnitXml } from '../services/junitParser.js';
 import { ingestPerfResult } from '../services/perfIngest.js';
@@ -27,8 +27,8 @@ const ResultSchema = z.object({
 export const runsRoutes: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', authenticate);
 
-  // POST /projects/:projectId/runs — create a new run
-  app.post('/:projectId/runs', async (req, reply) => {
+  // POST /projects/:projectId/runs — editor+
+  app.post('/:projectId/runs', { preHandler: requireRole('editor') }, async (req, reply) => {
     const { projectId } = req.params as { projectId: string };
     const { userId } = req.user as { userId: string };
     const body = CreateRunSchema.parse(req.body);
@@ -44,11 +44,42 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
       },
     });
 
+    if (body.caseIds && body.caseIds.length > 0) {
+      await prisma.runCase.createMany({
+        data: body.caseIds.map((testCaseId: string) => ({ runId: run.id, testCaseId })),
+        skipDuplicates: true,
+      });
+    }
+
     return reply.code(201).send(run);
   });
 
-  // GET /projects/:projectId/runs
-  app.get('/:projectId/runs', async (req) => {
+  // GET /projects/:projectId/runs/:runId/cases — viewer+
+  app.get('/:projectId/runs/:runId/cases', { preHandler: requireRole('viewer') }, async (req) => {
+    const { runId } = req.params as { projectId: string; runId: string };
+    const runCases = await prisma.runCase.findMany({
+      where: { runId },
+      include: { testCase: { select: { id: true, title: true, type: true, priority: true, suiteId: true, steps: true, tags: true } } },
+      orderBy: { id: 'asc' },
+    });
+    return { runCases };
+  });
+
+  // PUT /projects/:projectId/runs/:runId/cases/:caseId/status — editor+
+  app.put('/:projectId/runs/:runId/cases/:caseId/status', { preHandler: requireRole('editor') }, async (req, reply) => {
+    const { runId, caseId } = req.params as { projectId: string; runId: string; caseId: string };
+    const { status } = req.body as { status: string };
+    const valid = ['not_run', 'pass', 'fail', 'blocked', 'skipped'];
+    if (!valid.includes(status)) return reply.code(400).send({ error: 'Invalid status' });
+    const updated = await prisma.runCase.update({
+      where: { runId_testCaseId: { runId, testCaseId: caseId } },
+      data: { status },
+    });
+    return updated;
+  });
+
+  // GET /projects/:projectId/runs — viewer+
+  app.get('/:projectId/runs', { preHandler: requireRole('viewer') }, async (req) => {
     const { projectId } = req.params as { projectId: string };
     const runs = await prisma.testRun.findMany({
       where: { projectId },
@@ -58,8 +89,29 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
     return { runs };
   });
 
-  // GET /projects/:projectId/runs/:runId/results
-  app.get('/:projectId/runs/:runId/results', async (req) => {
+  // GET /projects/:projectId/runs/:runId — viewer+
+  app.get('/:projectId/runs/:runId', { preHandler: requireRole('viewer') }, async (req, reply) => {
+    const { runId } = req.params as { projectId: string; runId: string };
+    const run = await prisma.testRun.findUnique({
+      where: { id: runId },
+      include: { project: { select: { name: true } } },
+    });
+    if (!run) return reply.code(404).send({ error: 'Run not found' });
+
+    let reporterName: string | null = null;
+    if (run.triggeredBy) {
+      const user = await prisma.user.findUnique({
+        where: { id: run.triggeredBy },
+        select: { name: true },
+      });
+      reporterName = user?.name ?? null;
+    }
+
+    return { ...run, projectName: run.project.name, reporterName };
+  });
+
+  // GET /projects/:projectId/runs/:runId/results — viewer+
+  app.get('/:projectId/runs/:runId/results', { preHandler: requireRole('viewer') }, async (req) => {
     const { runId } = req.params as { projectId: string; runId: string };
     const results = await prisma.runResult.findMany({
       where: { runId },
@@ -69,8 +121,8 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
     return { results };
   });
 
-  // POST /projects/:projectId/runs/:runId/results
-  app.post('/:projectId/runs/:runId/results', async (req, reply) => {
+  // POST /projects/:projectId/runs/:runId/results — editor+
+  app.post('/:projectId/runs/:runId/results', { preHandler: requireRole('editor') }, async (req, reply) => {
     const { runId } = req.params as { projectId: string; runId: string };
     const body = req.body as { results?: unknown[] } | unknown;
     const rawResults = Array.isArray((body as { results?: unknown[] }).results)
@@ -93,11 +145,14 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
         failureNote: r.failureNote, errorMessage: r.errorMessage, stackTrace: r.stackTrace,
       })),
     });
+    await Promise.all(validated.map(r =>
+      prisma.runCase.updateMany({ where: { runId, testCaseId: r.testCaseId }, data: { status: r.status } })
+    ));
     return reply.code(201).send({ inserted: validated.length });
   });
 
-  // PUT /projects/:projectId/runs/:runId/close
-  app.put('/:projectId/runs/:runId/close', async (req, reply) => {
+  // PUT /projects/:projectId/runs/:runId/close — editor+
+  app.put('/:projectId/runs/:runId/close', { preHandler: requireRole('editor') }, async (req, reply) => {
     const { projectId, runId } = req.params as { projectId: string; runId: string };
     const run = await prisma.testRun.findUnique({ where: { id: runId } });
     if (!run) return reply.code(404).send({ error: 'Run not found' });
@@ -148,12 +203,15 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
         stackTrace: r.stackTrace,
       })),
     });
+    await Promise.all(validated.map(r =>
+      prisma.runCase.updateMany({ where: { runId, testCaseId: r.testCaseId }, data: { status: r.status } })
+    ));
 
     return reply.code(201).send({ inserted: validated.length });
   });
 
-  // POST /projects/:projectId/runs/:runId/ingest/junit — project-scoped alias
-  app.post('/:projectId/runs/:runId/ingest/junit', async (req, reply) => {
+  // POST /projects/:projectId/runs/:runId/ingest/junit — editor+
+  app.post('/:projectId/runs/:runId/ingest/junit', { preHandler: requireRole('editor') }, async (req, reply) => {
     const { runId } = req.params as { projectId: string; runId: string };
     return app.inject({
       method: 'POST',
@@ -248,6 +306,10 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
           stepsLog:        tc.systemOut ? { systemOut: tc.systemOut } : undefined,
         },
       });
+      await prisma.runCase.updateMany({
+        where: { runId, testCaseId: matched.id },
+        data: { status },
+      });
 
       processed++;
     }
@@ -328,8 +390,8 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
-  // POST /projects/:projectId/runs/:runId/ingest/perf — project-scoped alias
-  app.post('/:projectId/runs/:runId/ingest/perf', async (req, reply) => {
+  // POST /projects/:projectId/runs/:runId/ingest/perf — editor+
+  app.post('/:projectId/runs/:runId/ingest/perf', { preHandler: requireRole('editor') }, async (req, reply) => {
     const { runId } = req.params as { projectId: string; runId: string };
     return app.inject({
       method: 'POST',

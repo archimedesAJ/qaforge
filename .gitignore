@@ -27,3 +27,6 @@ npm-debug.log*
 
 # Test coverage
 coverage/
+
+# Uploaded evidence files (runtime data, persisted via Docker volume)
+apps/api/uploads/

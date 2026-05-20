@@ -18,6 +18,16 @@ interface RunResult {
   testCase?: { title: string; type: string; priority?: string };
 }
 
+interface RunDetail {
+  name: string;
+  env: string;
+  source: string;
+  startedAt: string;
+  endedAt?: string;
+  projectName: string;
+  reporterName: string | null;
+}
+
 interface AutoResultsViewerProps {
   projectId: string;
   runId: string;
@@ -37,6 +47,12 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [exporting, setExporting] = useState(false);
+
+  const { data: runDetail } = useQuery({
+    queryKey: ['run', runId],
+    queryFn: () => api.get<RunDetail>(`projects/${projectId}/runs/${runId}`),
+    enabled: !!runId,
+  });
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['run-results', runId],
@@ -110,7 +126,15 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
             loading={exporting}
             onClick={() => {
               exportResultsCsv(
-                { name: runName, env: '', source: '', startedAt: new Date().toISOString() },
+                {
+                  name:        runDetail?.name ?? runName,
+                  env:         runDetail?.env ?? '',
+                  source:      runDetail?.source ?? '',
+                  startedAt:   runDetail?.startedAt ?? new Date().toISOString(),
+                  endedAt:     runDetail?.endedAt,
+                  reporter:    runDetail?.reporterName ?? undefined,
+                  projectName: runDetail?.projectName,
+                },
                 results as Parameters<typeof exportResultsCsv>[1]
               );
             }}
@@ -124,7 +148,15 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
               setExporting(true);
               try {
                 await exportResultsPdf(
-                  { name: runName, env: '', source: '', startedAt: new Date().toISOString() },
+                  {
+                    name:        runDetail?.name ?? runName,
+                    env:         runDetail?.env ?? '',
+                    source:      runDetail?.source ?? '',
+                    startedAt:   runDetail?.startedAt ?? new Date().toISOString(),
+                    endedAt:     runDetail?.endedAt,
+                    reporter:    runDetail?.reporterName ?? undefined,
+                    projectName: runDetail?.projectName,
+                  },
                   results as Parameters<typeof exportResultsPdf>[1],
                   { total, passed, failed, blocked, skipped, passRate }
                 );

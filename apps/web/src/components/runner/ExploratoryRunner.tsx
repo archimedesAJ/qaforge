@@ -3,6 +3,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, Alert } from '../shared/ui';
 import { api } from '../../lib/api';
 import type { TestCase, ExploratoryCharter } from '@qaforge/types';
+import { AttachmentUploader } from './AttachmentUploader';
+import type { AttachmentItem } from './AttachmentUploader';
 
 type EntryType = 'bug' | 'observation' | 'question' | 'note';
 type Verdict = 'thorough' | 'partial' | 'incomplete';
@@ -45,6 +47,7 @@ export function ExploratoryRunner({ projectId, runId, testCase, onComplete, onCa
   const [debriefOpen, setDebriefOpen] = useState(false);
   const [debrief, setDebrief] = useState('');
   const [verdict, setVerdict] = useState<Verdict | null>(null);
+  const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
   const [error, setError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -64,6 +67,9 @@ export function ExploratoryRunner({ projectId, runId, testCase, onComplete, onCa
           durationMs: seconds * 1000,
           stepsLog: log,
           failureNote: debrief || undefined,
+          attachments: attachments.length > 0
+            ? attachments.map(a => ({ type: a.type, url: a.url }))
+            : undefined,
         }],
       }),
     onSuccess: () => {
@@ -234,6 +240,8 @@ export function ExploratoryRunner({ projectId, runId, testCase, onComplete, onCa
               onChange={e => setDebrief(e.target.value)}
               style={{ marginBottom: 14, resize: 'none' }}
             />
+
+            <AttachmentUploader value={attachments} onChange={setAttachments} />
 
             {error && <div style={{ marginBottom: 12 }}><Alert type="error">{error}</Alert></div>}
 

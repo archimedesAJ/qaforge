@@ -16,12 +16,14 @@ model User {
   email         String          @unique
   name          String
   passwordHash  String
+  activated     Boolean         @default(false)
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
   ownedProjects  Project[]       @relation("OwnedProjects")
   memberships    ProjectMember[]
   casesCreated   TestCase[]      @relation("CaseAuthor")
+  sentInvites    UserInvite[]    @relation("InviteSender")
 }
 
 model Project {
@@ -37,6 +39,7 @@ model Project {
   suites    TestSuite[]
   cases     TestCase[]
   runs      TestRun[]
+  invites   UserInvite[]
 }
 
 model ProjectMember {
@@ -58,6 +61,23 @@ model ApiKey {
   scope      String    @default("write:results")
   createdAt  DateTime  @default(now())
   lastUsedAt DateTime?
+}
+
+model UserInvite {
+  id          String   @id @default(uuid())
+  email       String
+  token       String   @unique
+  projectId   String
+  role        String   @default("editor") // manager | editor | viewer
+  invitedById String
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  invitedBy   User     @relation("InviteSender", fields: [invitedById], references: [id])
+
+  @@index([token])
+  @@index([email])
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -97,6 +117,7 @@ model TestCase {
   suite      TestSuite? @relation(fields: [suiteId], references: [id])
   createdBy  User       @relation("CaseAuthor", fields: [createdById], references: [id])
   results    RunResult[]
+  runCases   RunCase[]
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -117,6 +138,21 @@ model TestRun {
   project  Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
   results  RunResult[]
   session  ExploratorySession?
+  runCases RunCase[]
+}
+
+model RunCase {
+  id         Int      @id @default(autoincrement())
+  runId      String
+  testCaseId String
+  status     String   @default("not_run") // not_run | pass | fail | blocked | skipped
+  updatedAt  DateTime @updatedAt
+
+  run      TestRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  testCase TestCase @relation(fields: [testCaseId], references: [id])
+
+  @@unique([runId, testCaseId])
+  @@index([runId])
 }
 
 model RunResult {

@@ -167,6 +167,42 @@ export function Modal({ open, onClose, title, children, footer, maxWidth = 480 }
   );
 }
 
+// ── Confirm dialog ────────────────────────────────────────────
+interface ConfirmDialogProps {
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  variant?: 'danger' | 'primary';
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+export function ConfirmDialog({
+  open, title, message, confirmLabel = 'Confirm', variant = 'danger', onConfirm, onCancel,
+}: ConfirmDialogProps) {
+  return (
+    <Modal
+      open={open}
+      onClose={onCancel}
+      title={title}
+      maxWidth={400}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onCancel}>Cancel</Button>
+          <Button variant={variant} onClick={() => { onConfirm(); onCancel(); }}>
+            {confirmLabel}
+          </Button>
+        </>
+      }
+    >
+      <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--gray-600)', lineHeight: 1.5 }}>
+        {message}
+      </p>
+    </Modal>
+  );
+}
+
 // ── Badge ─────────────────────────────────────────────────────
 export function Badge({ label, type }: { label: string; type: string }) {
   return <span className={`badge badge-${type}`}>{label}</span>;

@@ -23,7 +23,7 @@ export type CoverageState = 'healthy' | 'stale' | 'failing';
 export type SessionVerdict = 'thorough' | 'partial' | 'incomplete';
 export type RunSource = 'manual' | 'ci_github' | 'ci_gitlab' | 'ci_jenkins' | 'api';
 export type TrackerType = 'jira' | 'github' | 'linear' | 'internal';
-export type MemberRole = 'admin' | 'editor' | 'viewer';
+export type MemberRole = 'admin' | 'manager' | 'editor' | 'viewer';
 export type RunStatus = 'open' | 'closed';
 
 // ─────────────────────────────────────────────────────────────
@@ -126,6 +126,17 @@ export interface User {
   id: string;
   email: string;
   name: string;
+  activated: boolean;
+  createdAt: string;
+}
+
+export interface UserInvite {
+  id: string;
+  email: string;
+  projectId: string;
+  role: MemberRole;
+  invitedById: string;
+  expiresAt: string;
   createdAt: string;
 }
 

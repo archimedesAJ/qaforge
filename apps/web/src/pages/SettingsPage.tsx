@@ -2,8 +2,9 @@ import { useState, FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '../components/shared/AppLayout';
-import { Button, Input, Select, Alert, Modal, Spinner, EmptyState } from '../components/shared/ui';
+import { Button, Input, Select, Alert, Modal, Spinner, EmptyState, ConfirmDialog } from '../components/shared/ui';
 import { api } from '../lib/api';
+import { useProjectRole } from '../hooks/useProjectRole';
 
 type Tab = 'team' | 'apikeys' | 'environments' | 'notifications' | 'integrations' | 'danger';
 
@@ -11,6 +12,14 @@ interface Member {
   userId: string;
   role: string;
   user: { id: string; email: string; name: string };
+}
+
+interface PendingInvite {
+  id: string;
+  email: string;
+  role: string;
+  createdAt: string;
+  expiresAt: string;
 }
 
 interface ApiKey {
@@ -88,7 +97,7 @@ export function SettingsPage() {
         {tab === 'team'         && <TeamTab         projectId={projectId} />}
         {tab === 'apikeys'      && <ApiKeysTab       projectId={projectId} />}
         {tab === 'environments' && <EnvironmentsTab  projectId={projectId} />}
-        {tab === 'notifications'&& <NotificationsTab                       />}
+        {tab === 'notifications'&& <NotificationsTab projectId={projectId}  />}
         {tab === 'integrations' && <IntegrationsTab  projectId={projectId} />}
         {tab === 'danger'       && <DangerTab        projectId={projectId} />}
       </div>
@@ -99,26 +108,35 @@ export function SettingsPage() {
 // ── Team tab ──────────────────────────────────────────────────
 function TeamTab({ projectId }: { projectId: string }) {
   const qc = useQueryClient();
+  const { isManager, isAdmin } = useProjectRole(projectId);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole]   = useState('editor');
-  const [error, setError] = useState('');
+  const [error, setError]   = useState('');
   const [success, setSuccess] = useState('');
+  const [confirmRemove, setConfirmRemove] = useState<{ userId: string; name: string } | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['project', projectId],
-    queryFn: () => api.get<{ members: Member[] }>(`projects/${projectId}`),
+    queryFn: () => api.get<{ members: Member[]; pendingInvites: PendingInvite[] }>(`projects/${projectId}`),
   });
 
   const invite = useMutation({
-    mutationFn: () => api.post(`projects/${projectId}/members`, { email: inviteEmail, role: inviteRole }),
+    mutationFn: () =>
+      api.post(`projects/${projectId}/members/invite`, { email: inviteEmail, role: inviteRole }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['project', projectId] });
       setInviteEmail('');
-      setSuccess(`Invited ${inviteEmail}`);
+      setSuccess(`Invite sent to ${inviteEmail}`);
       setError('');
-      setTimeout(() => setSuccess(''), 3000);
+      setTimeout(() => setSuccess(''), 4000);
     },
     onError: (err: Error) => setError(err.message),
+  });
+
+  const changeRole = useMutation({
+    mutationFn: ({ memberId, role }: { memberId: string; role: string }) =>
+      api.patch(`projects/${projectId}/members/${memberId}`, { role }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['project', projectId] }),
   });
 
   const remove = useMutation({
@@ -126,7 +144,13 @@ function TeamTab({ projectId }: { projectId: string }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['project', projectId] }),
   });
 
-  const members = data?.members ?? [];
+  const cancelInvite = useMutation({
+    mutationFn: (inviteId: string) => api.delete(`projects/${projectId}/invites/${inviteId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['project', projectId] }),
+  });
+
+  const members        = data?.members ?? [];
+  const pendingInvites = data?.pendingInvites ?? [];
 
   function handleInvite(e: FormEvent) {
     e.preventDefault();
@@ -137,28 +161,81 @@ function TeamTab({ projectId }: { projectId: string }) {
 
   return (
     <div>
-      <SectionHeader title="Invite member" desc="Add a team member by email. They must have a QAForge account." />
-
-      {error   && <div style={{ marginBottom: 12 }}><Alert type="error">{error}</Alert></div>}
-      {success && <div style={{ marginBottom: 12 }}><Alert type="success">{success}</Alert></div>}
-
-      <form onSubmit={handleInvite}>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
-          <Input
-            placeholder="colleague@example.com"
-            type="email"
-            value={inviteEmail}
-            onChange={e => setInviteEmail(e.target.value)}
-            style={{ flex: 1, marginBottom: 0 }}
+      {isManager && (
+        <>
+          <SectionHeader
+            title="Invite member"
+            desc="Send an invite email so they can set their password and join."
           />
-          <select className="input" style={{ width: 110 }} value={inviteRole} onChange={e => setInviteRole(e.target.value)}>
-            <option value="admin">Admin</option>
-            <option value="editor">Editor</option>
-            <option value="viewer">Viewer</option>
-          </select>
-          <Button type="submit" variant="primary" loading={invite.isPending}>Invite</Button>
-        </div>
-      </form>
+
+          {error   && <div style={{ marginBottom: 12 }}><Alert type="error">{error}</Alert></div>}
+          {success && <div style={{ marginBottom: 12 }}><Alert type="success">{success}</Alert></div>}
+
+          <form onSubmit={handleInvite}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
+              <Input
+                placeholder="colleague@example.com"
+                type="email"
+                value={inviteEmail}
+                onChange={e => setInviteEmail(e.target.value)}
+                style={{ flex: 1, marginBottom: 0 }}
+              />
+              <select
+                className="input"
+                style={{ width: 115 }}
+                value={inviteRole}
+                onChange={e => setInviteRole(e.target.value)}
+              >
+                <option value="manager">Manager</option>
+                <option value="editor">Editor</option>
+                <option value="viewer">Viewer</option>
+              </select>
+              <Button type="submit" variant="primary" loading={invite.isPending}>Send invite</Button>
+            </div>
+          </form>
+        </>
+      )}
+
+      {/* Pending invites */}
+      {pendingInvites.length > 0 && (
+        <>
+          <SectionHeader title="Pending invites" desc="Awaiting acceptance." />
+          {pendingInvites.map(inv => (
+            <div key={inv.id} style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '10px 0', borderBottom: '1px solid var(--border-color)',
+            }}>
+              <div style={{
+                width: 34, height: 34, borderRadius: '50%',
+                background: 'var(--gray-100)', border: '1px solid var(--border-color)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '1rem', flexShrink: 0,
+              }}>✉</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 500, fontSize: '0.9rem' }}>{inv.email}</div>
+                <div style={{ fontSize: '0.8125rem', color: 'var(--gray-400)', marginTop: 1 }}>
+                  {inv.role} · expires {new Date(inv.expiresAt).toLocaleDateString('en-GB')}
+                </div>
+              </div>
+              <span style={{
+                fontSize: '0.75rem', fontWeight: 600, padding: '2px 8px',
+                background: 'var(--color-warning-light)', color: 'var(--color-warning)',
+                borderRadius: 10,
+              }}>pending</span>
+              {isManager && (
+                <Button
+                  variant="ghost" size="sm"
+                  style={{ color: 'var(--gray-400)', fontSize: '0.8125rem' }}
+                  onClick={() => cancelInvite.mutate(inv.id)}
+                >
+                  Cancel
+                </Button>
+              )}
+            </div>
+          ))}
+          <div style={{ height: 20 }} />
+        </>
+      )}
 
       <SectionHeader title="Members" desc="Manage roles and access." />
 
@@ -175,31 +252,50 @@ function TeamTab({ projectId }: { projectId: string }) {
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontWeight: 700, fontSize: '0.875rem', color: 'var(--color-primary)', flexShrink: 0,
           }}>
-            {m.user.name.charAt(0).toUpperCase()}
+            {(m.user.name || m.user.email).charAt(0).toUpperCase()}
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 500, fontSize: '0.9rem' }}>{m.user.name}</div>
+            <div style={{ fontWeight: 500, fontSize: '0.9rem' }}>{m.user.name || m.user.email}</div>
             <div style={{ fontSize: '0.8125rem', color: 'var(--gray-400)' }}>{m.user.email}</div>
           </div>
-          <select
-            className="input"
-            style={{ width: 100, fontSize: '0.875rem', padding: '5px 8px' }}
-            value={m.role}
-            onChange={e => api.post(`projects/${projectId}/members`, { email: m.user.email, role: e.target.value })}
-          >
-            <option value="admin">Admin</option>
-            <option value="editor">Editor</option>
-            <option value="viewer">Viewer</option>
-          </select>
-          <Button
-            variant="ghost" size="sm"
-            style={{ color: 'var(--color-danger)' }}
-            onClick={() => { if (confirm(`Remove ${m.user.name}?`)) remove.mutate(m.userId); }}
-          >
-            Remove
-          </Button>
+          {isAdmin ? (
+            <select
+              className="input"
+              style={{ width: 110, fontSize: '0.875rem', padding: '5px 8px' }}
+              value={m.role}
+              onChange={e => changeRole.mutate({ memberId: m.userId, role: e.target.value })}
+            >
+              <option value="admin">Admin</option>
+              <option value="manager">Manager</option>
+              <option value="editor">Editor</option>
+              <option value="viewer">Viewer</option>
+            </select>
+          ) : (
+            <span style={{
+              fontSize: '0.8125rem', color: 'var(--gray-500)',
+              padding: '4px 10px', background: 'var(--gray-100)', borderRadius: 6,
+            }}>{m.role}</span>
+          )}
+          {isAdmin && (
+            <Button
+              variant="ghost" size="sm"
+              style={{ color: 'var(--color-danger)' }}
+              onClick={() => setConfirmRemove({ userId: m.userId, name: m.user.name || m.user.email })}
+            >
+              Remove
+            </Button>
+          )}
         </div>
       ))}
+
+      <ConfirmDialog
+        open={!!confirmRemove}
+        title="Remove member"
+        message={`Remove ${confirmRemove?.name} from this project? They will lose all access immediately.`}
+        confirmLabel="Remove"
+        onConfirm={() => { remove.mutate(confirmRemove!.userId); setConfirmRemove(null); }}
+        onCancel={() => setConfirmRemove(null)}
+      />
     </div>
   );
 }
@@ -207,11 +303,13 @@ function TeamTab({ projectId }: { projectId: string }) {
 // ── API keys tab ──────────────────────────────────────────────
 function ApiKeysTab({ projectId }: { projectId: string }) {
   const qc = useQueryClient();
+  const { isManager } = useProjectRole(projectId);
   const [showCreate, setShowCreate] = useState(false);
   const [keyName, setKeyName]       = useState('');
   const [scope, setScope]           = useState('write:results');
   const [newKey, setNewKey]         = useState<string | null>(null);
   const [error, setError]           = useState('');
+  const [confirmRevoke, setConfirmRevoke] = useState<{ id: string; name: string } | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['api-keys', projectId],
@@ -241,7 +339,7 @@ function ApiKeysTab({ projectId }: { projectId: string }) {
       <SectionHeader
         title="API keys"
         desc="Keys are scoped to this project. A key is shown only once — copy it before closing."
-        action={<Button variant="primary" size="sm" onClick={() => setShowCreate(true)}>Create key</Button>}
+        action={isManager ? <Button variant="primary" size="sm" onClick={() => setShowCreate(true)}>Create key</Button> : undefined}
       />
 
       {newKey && (
@@ -290,15 +388,26 @@ function ApiKeysTab({ projectId }: { projectId: string }) {
               {k.lastUsedAt && ` · Last used ${new Date(k.lastUsedAt).toLocaleDateString('en-GB')}`}
             </div>
           </div>
-          <Button
-            variant="ghost" size="sm"
-            style={{ color: 'var(--color-danger)', flexShrink: 0 }}
-            onClick={() => { if (confirm(`Revoke key "${k.name}"?`)) revoke.mutate(k.id); }}
-          >
-            Revoke
-          </Button>
+          {isManager && (
+            <Button
+              variant="ghost" size="sm"
+              style={{ color: 'var(--color-danger)', flexShrink: 0 }}
+              onClick={() => setConfirmRevoke({ id: k.id, name: k.name })}
+            >
+              Revoke
+            </Button>
+          )}
         </div>
       ))}
+
+      <ConfirmDialog
+        open={!!confirmRevoke}
+        title="Revoke API key"
+        message={`Revoke "${confirmRevoke?.name}"? Any CI/CD pipelines using this key will stop working immediately.`}
+        confirmLabel="Revoke"
+        onConfirm={() => { revoke.mutate(confirmRevoke!.id); setConfirmRevoke(null); }}
+        onCancel={() => setConfirmRevoke(null)}
+      />
 
       {/* CI snippet */}
       <div style={{
@@ -358,7 +467,8 @@ function ApiKeysTab({ projectId }: { projectId: string }) {
 }
 
 // ── Environments tab ──────────────────────────────────────────
-function EnvironmentsTab({ projectId: _projectId }: { projectId: string }) {
+function EnvironmentsTab({ projectId }: { projectId: string }) {
+  const { isManager } = useProjectRole(projectId);
   const [envs, setEnvs] = useState<Environment[]>([
     { id: '1', name: 'Production',  baseUrl: 'https://api.example.com'         },
     { id: '2', name: 'Staging',     baseUrl: 'https://api.staging.example.com' },
@@ -379,7 +489,7 @@ function EnvironmentsTab({ projectId: _projectId }: { projectId: string }) {
       <SectionHeader
         title="Environments"
         desc="Define environments and their base URLs for run scoping and variable resolution."
-        action={<Button variant="primary" size="sm" onClick={() => setShowAdd(true)}>Add environment</Button>}
+        action={isManager ? <Button variant="primary" size="sm" onClick={() => setShowAdd(true)}>Add environment</Button> : undefined}
       />
 
       {envs.map(env => (
@@ -393,14 +503,16 @@ function EnvironmentsTab({ projectId: _projectId }: { projectId: string }) {
               {env.baseUrl}
             </div>
           </div>
-          <Button variant="ghost" size="sm">Edit</Button>
-          <Button
-            variant="ghost" size="sm"
-            style={{ color: 'var(--color-danger)' }}
-            onClick={() => setEnvs(prev => prev.filter(e => e.id !== env.id))}
-          >
-            Remove
-          </Button>
+          {isManager && <Button variant="ghost" size="sm">Edit</Button>}
+          {isManager && (
+            <Button
+              variant="ghost" size="sm"
+              style={{ color: 'var(--color-danger)' }}
+              onClick={() => setEnvs(prev => prev.filter(e => e.id !== env.id))}
+            >
+              Remove
+            </Button>
+          )}
         </div>
       ))}
 
@@ -423,12 +535,12 @@ function EnvironmentsTab({ projectId: _projectId }: { projectId: string }) {
 }
 
 // ── Notifications tab ─────────────────────────────────────────
-function NotificationsTab() {
+function NotificationsTab({ projectId }: { projectId: string }) {
+  const { isManager } = useProjectRole(projectId);
   const [notifs, setNotifs] = useState<NotifSetting[]>(DEFAULT_NOTIFS);
   const [slackUrl, setSlackUrl] = useState('');
   const [smtpEmail, setSmtpEmail] = useState('');
   const [saved, setSaved] = useState(false);
-
 
   function save() {
     setSaved(true);
@@ -446,31 +558,34 @@ function NotificationsTab() {
       <Input
         label="Webhook URL"
         value={slackUrl}
-        onChange={e => setSlackUrl(e.target.value)}
+        onChange={e => isManager && setSlackUrl(e.target.value)}
         placeholder="https://hooks.slack.com/services/…"
         hint="Create an incoming webhook in your Slack app settings"
+        disabled={!isManager}
       />
-      <NotifToggleList notifs={slackNotifs} allNotifs={notifs} onChange={setNotifs} />
+      <NotifToggleList notifs={slackNotifs} allNotifs={notifs} onChange={setNotifs} readOnly={!isManager} />
 
       <div style={{ height: 24 }} />
       <SectionHeader title="Email" desc="Receive digest reports by email." />
       <Input
         label="Send digests to"
         value={smtpEmail}
-        onChange={e => setSmtpEmail(e.target.value)}
+        onChange={e => isManager && setSmtpEmail(e.target.value)}
         placeholder="qa-team@example.com"
+        disabled={!isManager}
       />
-      <NotifToggleList notifs={emailNotifs} allNotifs={notifs} onChange={setNotifs} />
+      <NotifToggleList notifs={emailNotifs} allNotifs={notifs} onChange={setNotifs} readOnly={!isManager} />
 
-      <Button variant="primary" onClick={save} style={{ marginTop: 8 }}>Save settings</Button>
+      {isManager && <Button variant="primary" onClick={save} style={{ marginTop: 8 }}>Save settings</Button>}
     </div>
   );
 }
 
-function NotifToggleList({ notifs, allNotifs, onChange }: {
+function NotifToggleList({ notifs, allNotifs, onChange, readOnly = false }: {
   notifs: NotifSetting[];
   allNotifs: NotifSetting[];
   onChange: (n: NotifSetting[]) => void;
+  readOnly?: boolean;
 }) {
   return (
     <div style={{ marginBottom: 8 }}>
@@ -482,7 +597,11 @@ function NotifToggleList({ notifs, allNotifs, onChange }: {
             padding: '10px 0', borderBottom: '1px solid var(--border-color)',
           }}>
             <span style={{ fontSize: '0.9rem', color: 'var(--gray-800)' }}>{n.label}</span>
-            <Toggle checked={n.enabled} onChange={() => onChange(allNotifs.map((a, i) => i === idx ? { ...a, enabled: !a.enabled } : a))} />
+            <Toggle
+              checked={n.enabled}
+              disabled={readOnly}
+              onChange={() => !readOnly && onChange(allNotifs.map((a, i) => i === idx ? { ...a, enabled: !a.enabled } : a))}
+            />
           </div>
         );
       })}
@@ -490,14 +609,17 @@ function NotifToggleList({ notifs, allNotifs, onChange }: {
   );
 }
 
-function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+function Toggle({ checked, onChange, disabled = false }: { checked: boolean; onChange: () => void; disabled?: boolean }) {
   return (
     <button
       onClick={onChange}
+      disabled={disabled}
       style={{
-        width: 40, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
-        background: checked ? 'var(--color-primary)' : 'var(--gray-300)',
+        width: 40, height: 22, borderRadius: 11, border: 'none',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        background: checked ? (disabled ? 'var(--gray-300)' : 'var(--color-primary)') : 'var(--gray-300)',
         position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+        opacity: disabled ? 0.6 : 1,
       }}
       role="switch"
       aria-checked={checked}
@@ -512,7 +634,8 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void 
 }
 
 // ── Integrations tab ──────────────────────────────────────────
-function IntegrationsTab({ projectId: _projectId }: { projectId: string }) {
+function IntegrationsTab({ projectId }: { projectId: string }) {
+  const { isManager } = useProjectRole(projectId);
   const [githubToken, setGithubToken]   = useState('');
   const [githubRepo, setGithubRepo]     = useState('');
   const [jiraUrl, setJiraUrl]           = useState('');
@@ -586,7 +709,7 @@ function IntegrationsTab({ projectId: _projectId }: { projectId: string }) {
             </div>
           </div>
           {intg.fields}
-          <Button variant="secondary" size="sm" onClick={intg.onSave}>Save {intg.name}</Button>
+          {isManager && <Button variant="secondary" size="sm" onClick={intg.onSave}>Save {intg.name}</Button>}
         </div>
       ))}
     </div>
@@ -595,10 +718,40 @@ function IntegrationsTab({ projectId: _projectId }: { projectId: string }) {
 
 // ── Danger zone tab ───────────────────────────────────────────
 function DangerTab({ projectId }: { projectId: string }) {
+  const { isAdmin } = useProjectRole(projectId);
   const [confirm1, setConfirm1] = useState('');
+  const [error, setError]       = useState('');
+  const [deleting, setDeleting] = useState(false);
+
+  if (!isAdmin) {
+    return (
+      <div style={{
+        padding: '20px 24px', border: '1px solid var(--border-color)',
+        borderRadius: 'var(--border-radius-lg)', textAlign: 'center',
+        color: 'var(--gray-500)', fontSize: '0.9rem',
+      }}>
+        <div style={{ fontSize: '1.5rem', marginBottom: 10 }}>🔒</div>
+        Only project admins can access the danger zone.
+      </div>
+    );
+  }
+
+  async function handleDelete() {
+    setError('');
+    setDeleting(true);
+    try {
+      await api.delete(`projects/${projectId}`);
+      window.location.href = '/';
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to delete project');
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   return (
     <div>
+      {error && <div style={{ marginBottom: 16 }}><Alert type="error">{error}</Alert></div>}
       <div style={{
         padding: '16px 18px', border: '1px solid #fecaca',
         borderRadius: 'var(--border-radius-lg)', marginBottom: 16,
@@ -615,8 +768,9 @@ function DangerTab({ projectId }: { projectId: string }) {
         />
         <Button
           variant="danger"
-          disabled={confirm1 !== projectId}
-          onClick={() => alert('Delete would happen here — wired to DELETE /projects/:id')}
+          disabled={confirm1 !== projectId || deleting}
+          loading={deleting}
+          onClick={handleDelete}
         >
           Delete this project
         </Button>

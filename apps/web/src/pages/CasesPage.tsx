@@ -4,6 +4,7 @@ import { AppLayout } from '../components/shared/AppLayout';
 import { SuiteTree } from '../components/editor/SuiteTree';
 import { CaseList } from '../components/editor/CaseList';
 import { CaseEditor } from '../components/editor/CaseEditor';
+import { useProjectRole } from '../hooks/useProjectRole';
 import type { TestCase } from '@qaforge/types';
 
 type Panel = 'list' | 'editor';
@@ -13,6 +14,8 @@ export function CasesPage() {
   const [selectedSuiteId, setSelectedSuiteId] = useState<string | null>(null);
   const [panel, setPanel] = useState<Panel>('list');
   const [editingCase, setEditingCase] = useState<TestCase | null>(null);
+
+  const { isEditor } = useProjectRole(projectId);
 
   if (!projectId) return null;
 
@@ -66,6 +69,7 @@ export function CasesPage() {
           <SuiteTree
             projectId={projectId}
             selectedId={selectedSuiteId}
+            canManage={isEditor}
             onSelect={id => {
               setSelectedSuiteId(id);
               setPanel('list');
@@ -79,7 +83,8 @@ export function CasesPage() {
             <CaseList
               projectId={projectId}
               suiteId={selectedSuiteId}
-              onEdit={openEdit}
+              canEdit={isEditor}
+              onEdit={isEditor ? openEdit : () => {}}
               onNew={openNew}
             />
           ) : (

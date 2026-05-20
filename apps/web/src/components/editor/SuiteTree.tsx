@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { ConfirmDialog } from '../shared/ui';
 import { api } from '../../lib/api';
 
 export interface Suite {
@@ -13,16 +14,19 @@ export interface Suite {
 interface SuiteTreeProps {
   projectId: string;
   selectedId: string | null;
+  canManage?: boolean;
+  canCreate?: boolean;
   onSelect: (suiteId: string | null) => void;
 }
 
-export function SuiteTree({ projectId, selectedId, onSelect }: SuiteTreeProps) {
+export function SuiteTree({ projectId, selectedId, canManage = true, canCreate = canManage, onSelect }: SuiteTreeProps) {
   const qc = useQueryClient();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState<string | null>(null); // parentId or 'root'
   const [newName, setNewName] = useState('');
-  const [renaming, setRenaming] = useState<string | null>(null);
-  const [renameName, setRenameName] = useState('');
+  const [renaming, setRenaming]       = useState<string | null>(null);
+  const [renameName, setRenameName]   = useState('');
+  const [confirmSuite, setConfirmSuite] = useState<{ id: string; name: string } | null>(null);
 
   const { data } = useQuery({
     queryKey: ['suites', projectId],
@@ -158,32 +162,35 @@ export function SuiteTree({ projectId, selectedId, onSelect }: SuiteTreeProps) {
           )}
 
           {/* Actions (visible on hover via parent hover) */}
-          {!isRenaming && (
+          {!isRenaming && (canCreate || canManage) && (
             <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-              <button
-                title="Add sub-suite"
-                onClick={e => { e.stopPropagation(); setCreating(suite.id); setExpanded(prev => new Set([...prev, suite.id])); }}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 4px', color: 'var(--gray-400)', fontSize: '0.875rem', borderRadius: 3 }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--color-primary)'}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--gray-400)'}
-              >+</button>
-              <button
-                title="Rename"
-                onClick={e => { e.stopPropagation(); setRenaming(suite.id); setRenameName(suite.name); }}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 4px', color: 'var(--gray-400)', fontSize: '0.75rem', borderRadius: 3 }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--gray-700)'}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--gray-400)'}
-              >✎</button>
-              <button
-                title="Delete suite"
-                onClick={e => {
-                  e.stopPropagation();
-                  if (confirm(`Delete suite "${suite.name}"?`)) deleteSuite.mutate(suite.id);
-                }}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 4px', color: 'var(--gray-400)', fontSize: '0.75rem', borderRadius: 3 }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--color-danger)'}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--gray-400)'}
-              >✕</button>
+              {canCreate && (
+                <button
+                  title="Add sub-suite"
+                  onClick={e => { e.stopPropagation(); setCreating(suite.id); setExpanded(prev => new Set([...prev, suite.id])); }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 4px', color: 'var(--gray-400)', fontSize: '0.875rem', borderRadius: 3 }}
+                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--color-primary)'}
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--gray-400)'}
+                >+</button>
+              )}
+              {canManage && (
+                <button
+                  title="Rename"
+                  onClick={e => { e.stopPropagation(); setRenaming(suite.id); setRenameName(suite.name); }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 4px', color: 'var(--gray-400)', fontSize: '0.75rem', borderRadius: 3 }}
+                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--gray-700)'}
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--gray-400)'}
+                >✎</button>
+              )}
+              {canManage && (
+                <button
+                  title="Delete suite"
+                  onClick={e => { e.stopPropagation(); setConfirmSuite({ id: suite.id, name: suite.name }); }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '1px 4px', color: 'var(--gray-400)', fontSize: '0.75rem', borderRadius: 3 }}
+                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--color-danger)'}
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--gray-400)'}
+                >✕</button>
+              )}
             </div>
           )}
         </div>
@@ -206,6 +213,15 @@ export function SuiteTree({ projectId, selectedId, onSelect }: SuiteTreeProps) {
   }
 
   return (
+    <>
+    <ConfirmDialog
+      open={!!confirmSuite}
+      title="Delete suite"
+      message={`Delete suite "${confirmSuite?.name}"? All test cases inside will be unassigned.`}
+      confirmLabel="Delete"
+      onConfirm={() => { deleteSuite.mutate(confirmSuite!.id); setConfirmSuite(null); }}
+      onCancel={() => setConfirmSuite(null)}
+    />
     <div style={{ padding: '8px 0' }}>
       {/* All cases (no suite filter) */}
       <div
@@ -240,8 +256,8 @@ export function SuiteTree({ projectId, selectedId, onSelect }: SuiteTreeProps) {
         />
       )}
 
-      {/* New suite button */}
-      <button
+      {/* New suite button — editor+ */}
+      {canCreate && <button
         onClick={() => setCreating('root')}
         style={{
           display: 'flex', alignItems: 'center', gap: 6,
@@ -254,8 +270,9 @@ export function SuiteTree({ projectId, selectedId, onSelect }: SuiteTreeProps) {
         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--gray-400)'; }}
       >
         <span>+</span> New suite
-      </button>
+      </button>}
     </div>
+    </>
   );
 }
 

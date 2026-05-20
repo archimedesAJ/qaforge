@@ -16,7 +16,7 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     ...opts,
     headers: {
-      ...(opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(opts.body !== undefined && !(opts.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...opts.headers,
     },
@@ -40,8 +40,10 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
 export const api = {
   get:    <T>(path: string)                => request<T>(path),
   post:   <T>(path: string, body: unknown) => request<T>(path, { method: 'POST',   body: JSON.stringify(body) }),
-  put:    <T>(path: string, body?: unknown) => request<T>(path, { method: 'PUT',    body: body ? JSON.stringify(body) : undefined }),
+  put:    <T>(path: string, body?: unknown) => request<T>(path, { method: 'PUT',   body: body ? JSON.stringify(body) : undefined }),
+  patch:  <T>(path: string, body: unknown)  => request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
   delete: <T>(path: string)                => request<T>(path, { method: 'DELETE' }),
+  upload: <T>(path: string, form: FormData) => request<T>(path, { method: 'POST', body: form }),
 };
 
 export { ApiError };

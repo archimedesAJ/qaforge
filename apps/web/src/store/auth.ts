@@ -11,22 +11,30 @@ interface AuthState {
   user: AuthUser | null;
   token: string | null;
   isLoading: boolean;
+  projectRoles: Record<string, string>;
+  setProjectRole: (projectId: string, role: string) => void;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, name: string) => Promise<void>;
   logout: () => void;
   hydrate: () => void;
 }
 
+const _token = localStorage.getItem('qaforge_token');
+const _user  = localStorage.getItem('qaforge_user');
+
 export const useAuthStore = create<AuthState>((set) => ({
-  user: null,
-  token: null,
+  user: _user ? (JSON.parse(_user) as AuthUser) : null,
+  token: _token,
   isLoading: false,
+  projectRoles: {},
+  setProjectRole: (projectId, role) =>
+    set(s => ({ projectRoles: { ...s.projectRoles, [projectId]: role } })),
 
   hydrate: () => {
     const token = localStorage.getItem('qaforge_token');
-    const user = localStorage.getItem('qaforge_user');
+    const user  = localStorage.getItem('qaforge_user');
     if (token && user) {
-      set({ token, user: JSON.parse(user) });
+      set({ token, user: JSON.parse(user) as AuthUser });
     }
   },
 

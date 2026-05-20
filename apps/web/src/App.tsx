@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/auth';
 import { LoginPage, RegisterPage } from './pages/AuthPages';
+import { AcceptInvitePage } from './pages/AcceptInvitePage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { CasesPage } from './pages/CasesPage';
@@ -23,8 +24,9 @@ export function App() {
 
   return (
     <Routes>
-      <Route path="/login"    element={<LoginPage />} />
-      <Route path="/register" element={<RegisterPage />} />
+      <Route path="/login"          element={<LoginPage />} />
+      <Route path="/register"       element={<RegisterPage />} />
+      <Route path="/accept-invite"  element={<AcceptInvitePage />} />
       <Route path="/"                                   element={<RequireAuth><ProjectsPage /></RequireAuth>} />
       <Route path="/projects/:projectId"                element={<RequireAuth><DashboardPage /></RequireAuth>} />
       <Route path="/projects/:projectId/cases"          element={<RequireAuth><CasesPage /></RequireAuth>} />

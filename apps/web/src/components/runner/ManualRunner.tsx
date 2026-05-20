@@ -3,6 +3,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, Alert } from '../shared/ui';
 import { api } from '../../lib/api';
 import type { TestCase, ManualStep, ResultStatus } from '@qaforge/types';
+import { AttachmentUploader } from './AttachmentUploader';
+import type { AttachmentItem } from './AttachmentUploader';
 
 interface StepResult {
   order: number;
@@ -32,6 +34,7 @@ export function ManualRunner({ projectId, runId, testCase, onComplete, onCancel 
   const [results, setResults] = useState<StepResult[]>([]);
   const [actual, setActual] = useState('');
   const [runNote, setRunNote] = useState('');
+  const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
   const [done, setDone] = useState(false);
   const [error, setError] = useState('');
 
@@ -46,6 +49,9 @@ export function ManualRunner({ projectId, runId, testCase, onComplete, onCancel 
           durationMs: 0,
           stepsLog: results,
           failureNote: runNote || undefined,
+          attachments: attachments.length > 0
+            ? attachments.map(a => ({ type: a.type, url: a.url }))
+            : undefined,
         }],
       }),
     onSuccess: () => {
@@ -251,6 +257,8 @@ export function ManualRunner({ projectId, runId, testCase, onComplete, onCancel 
                 );
               })}
             </div>
+
+            <AttachmentUploader value={attachments} onChange={setAttachments} />
 
             <textarea
               className="input"
