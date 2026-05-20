@@ -18,9 +18,9 @@ COPY packages/types packages/types
 COPY packages/db    packages/db
 COPY apps/api       apps/api
 
-# PRISMA_GENERATE_SKIP_VALIDATION skips DATABASE_URL requirement at build time
-# (the variable is injected at runtime, not during image build)
-ENV PRISMA_GENERATE_SKIP_VALIDATION=1
+# Dummy DATABASE_URL so Prisma can parse the schema at build time.
+# The real value is injected at runtime via docker-compose / pipeline variables.
+ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
 RUN npx prisma generate --schema=packages/db/prisma/schema.prisma
 RUN npm run build -w apps/api
 
