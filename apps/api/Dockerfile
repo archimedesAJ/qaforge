@@ -1,32 +1,32 @@
-# ── Build stage ──────────────────────────────────────────────
+# Build stage
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Install native build tools (needed by some npm deps)
-RUN apk add --no-cache python3 make g++
+# Install native build tools and OpenSSL needed by Prisma on Alpine.
+RUN apk add --no-cache python3 make g++ openssl
 
-# Copy workspace manifests first so npm ci can cache the install layer
+# Copy every workspace manifest first so npm ci can resolve the root workspace.
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/types/package.json   packages/types/
 COPY packages/db/package.json      packages/db/
 COPY apps/api/package.json         apps/api/
+COPY apps/web/package.json         apps/web/
 
 RUN npm ci
 
-# Copy source
 COPY packages/types packages/types
 COPY packages/db    packages/db
 COPY apps/api       apps/api
 
-# Generate Prisma client and compile TypeScript
 RUN npx prisma generate --schema=packages/db/prisma/schema.prisma
 RUN npm run build -w apps/api
 
-# ── Runtime stage ────────────────────────────────────────────
+# Runtime stage
 FROM node:20-alpine AS runner
 WORKDIR /app
 
-# Copy the entire built tree from builder (workspace symlinks intact)
+RUN apk add --no-cache openssl
+
 COPY --from=builder /app/node_modules      ./node_modules
 COPY --from=builder /app/packages/db       ./packages/db
 COPY --from=builder /app/packages/types    ./packages/types
@@ -38,7 +38,6 @@ ENV NODE_ENV=production
 
 EXPOSE 3001
 
-# Migrate then start — entrypoint is defined in compose so override is easy
 COPY apps/api/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
