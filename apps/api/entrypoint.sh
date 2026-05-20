@@ -8,8 +8,10 @@ if [ -z "$DATABASE_URL" ]; then
 fi
 
 # Wait for Postgres to be reachable before running migrations
-echo "Waiting for database..."
-until nc -z "${POSTGRES_HOST:-postgres}" 5432; do
+DB_HOST=$(echo "$DATABASE_URL" | sed 's|.*@\([^:@]*\):\([0-9]*\)/.*|\1|')
+DB_PORT=$(echo "$DATABASE_URL" | sed 's|.*@[^:]*:\([0-9]*\)/.*|\1|')
+echo "Waiting for database at ${DB_HOST}:${DB_PORT}..."
+until nc -z "$DB_HOST" "$DB_PORT"; do
   sleep 2
 done
 echo "Database is ready."
