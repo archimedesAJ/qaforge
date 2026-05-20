@@ -92,8 +92,8 @@ export const insightsRoutes: FastifyPluginAsync = async (app) => {
       select: { runId: true, status: true },
     });
 
-    const runDateMap = new Map(
-      closedRuns.map((r: { id: string; endedAt: Date | null }) => [r.id, r.endedAt!])
+    const runDateMap = new Map<string, Date>(
+      closedRuns.map((r: { id: string; endedAt: Date | null }) => [r.id, r.endedAt!] as [string, Date])
     );
     const dateGroups = new Map<string, { pass: number; total: number }>();
 

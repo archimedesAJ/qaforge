@@ -177,7 +177,7 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
 
     // Pre-load suites so we can resolve names → IDs
     const suites = await prisma.testSuite.findMany({ where: { projectId }, select: { id: true, name: true } });
-    const suiteMap = new Map(suites.map(s => [s.name.toLowerCase().trim(), s.id]));
+    const suiteMap = new Map(suites.map((s: { id: string; name: string }) => [s.name.toLowerCase().trim(), s.id]));
 
     // Pre-load existing titles to prevent duplicates
     const existingCases = await prisma.testCase.findMany({
