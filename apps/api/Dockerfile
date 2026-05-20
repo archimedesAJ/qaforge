@@ -36,7 +36,7 @@ COPY --from=builder /app/package.json      .
 
 ENV NODE_ENV=production
 
-EXPOSE 3001
+EXPOSE 8000
 
 COPY apps/api/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
