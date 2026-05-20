@@ -18,6 +18,9 @@ COPY packages/types packages/types
 COPY packages/db    packages/db
 COPY apps/api       apps/api
 
+# PRISMA_GENERATE_SKIP_VALIDATION skips DATABASE_URL requirement at build time
+# (the variable is injected at runtime, not during image build)
+ENV PRISMA_GENERATE_SKIP_VALIDATION=1
 RUN npx prisma generate --schema=packages/db/prisma/schema.prisma
 RUN npm run build -w apps/api
 
