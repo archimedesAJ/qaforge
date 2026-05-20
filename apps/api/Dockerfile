@@ -20,7 +20,6 @@ COPY apps/api       apps/api
 
 # Dummy DATABASE_URL so Prisma can parse the schema at build time.
 # The real value is injected at runtime via docker-compose / pipeline variables.
-ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
 RUN npx prisma generate --schema=packages/db/prisma/schema.prisma
 RUN npm run build -w apps/api
 
