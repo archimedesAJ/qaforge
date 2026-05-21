@@ -88,24 +88,34 @@ export async function sendInviteEmail(opts: {
   const roleLabel = opts.role.charAt(0).toUpperCase() + opts.role.slice(1);
   const subject   = `You've been invited to ${opts.projectName} on QAForge`;
 
-  const html = `
-    <p>Hi,</p>
-    <p><strong>${opts.inviterName}</strong> has invited you to join
-    <strong>${opts.projectName}</strong> on QAForge as a <strong>${roleLabel}</strong>.</p>
-    <p>Click the button below to set your password and get started.
-    This link expires in 7 days.</p>
-    <p>
-      <a href="${link}"
-         style="background:#2563eb;color:#fff;padding:10px 20px;border-radius:6px;
-                text-decoration:none;display:inline-block;">
-        Accept invite
-      </a>
-    </p>
-    <p>Or copy this URL into your browser:<br/><code>${link}</code></p>
-    <p style="color:#6b7280;font-size:0.875rem;">
-      If you weren't expecting this invitation, you can ignore this email.
-    </p>
-  `;
+  const html = `<!DOCTYPE html>
+<html>
+<body style="font-family:Arial,sans-serif;font-size:15px;color:#111827;margin:0;padding:20px;">
+  <p>Hi,</p>
+  <p><strong>${opts.inviterName}</strong> has invited you to join
+  <strong>${opts.projectName}</strong> on QAForge as a <strong>${roleLabel}</strong>.</p>
+  <p>Click the button below to set your password and get started.
+  This link expires in 7 days.</p>
+
+  <table cellspacing="0" cellpadding="0" border="0" style="margin:24px 0;">
+    <tr>
+      <td style="border-radius:6px;background:#2563eb;">
+        <a href="${link}"
+           style="display:inline-block;padding:12px 24px;color:#ffffff;font-weight:bold;
+                  text-decoration:none;border-radius:6px;font-size:15px;">
+          Accept invite
+        </a>
+      </td>
+    </tr>
+  </table>
+
+  <p>Or copy this URL into your browser:<br/>
+  <a href="${link}" style="color:#2563eb;word-break:break-all;">${link}</a></p>
+  <p style="color:#6b7280;font-size:13px;">
+    If you weren't expecting this invitation, you can ignore this email.
+  </p>
+</body>
+</html>`;
 
   if (isConfigured) {
     await sendViaMsGraph({ to: opts.to, subject, html });
