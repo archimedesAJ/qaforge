@@ -89,31 +89,74 @@ export async function sendInviteEmail(opts: {
   const subject   = `You've been invited to ${opts.projectName} on QAForge`;
 
   const html = `<!DOCTYPE html>
-<html>
-<body style="font-family:Arial,sans-serif;font-size:15px;color:#111827;margin:0;padding:20px;">
-  <p>Hi,</p>
-  <p><strong>${opts.inviterName}</strong> has invited you to join
-  <strong>${opts.projectName}</strong> on QAForge as a <strong>${roleLabel}</strong>.</p>
-  <p>Click the button below to set your password and get started.
-  This link expires in 7 days.</p>
-
-  <table cellspacing="0" cellpadding="0" border="0" style="margin:24px 0;">
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6;padding:40px 0;">
     <tr>
-      <td style="border-radius:6px;background:#2563eb;">
-        <a href="${link}"
-           style="display:inline-block;padding:12px 24px;color:#ffffff;font-weight:bold;
-                  text-decoration:none;border-radius:6px;font-size:15px;">
-          Accept invite
-        </a>
+      <td align="center">
+        <table width="560" cellpadding="0" cellspacing="0" border="0"
+               style="background:#ffffff;border-radius:8px;padding:40px;max-width:560px;">
+          <tr>
+            <td style="font-size:22px;font-weight:bold;color:#111827;padding-bottom:16px;">
+              You've been invited to QAForge
+            </td>
+          </tr>
+          <tr>
+            <td style="font-size:15px;color:#374151;line-height:1.6;padding-bottom:16px;">
+              <strong>${opts.inviterName}</strong> has invited you to join
+              <strong>${opts.projectName}</strong> as a <strong>${roleLabel}</strong>.
+            </td>
+          </tr>
+          <tr>
+            <td style="font-size:15px;color:#374151;padding-bottom:32px;">
+              Click the button below to set your password and get started.
+              This link expires in 7 days.
+            </td>
+          </tr>
+          <tr>
+            <td align="left" style="padding-bottom:32px;">
+              <table cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td align="center" bgcolor="#2563eb"
+                      style="border-radius:6px;mso-padding-alt:0;">
+                    <!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml"
+                      href="${link}" style="height:44px;width:160px;" arcsize="14%"
+                      fillcolor="#2563eb" strokecolor="#2563eb">
+                      <v:textbox inset="0,0,0,0"><center style="color:#ffffff;font-family:Arial;font-size:15px;font-weight:bold;">Accept invite</center></v:textbox>
+                    </v:roundrect><![endif]-->
+                    <!--[if !mso]><!-->
+                    <a href="${link}"
+                       style="display:inline-block;padding:12px 28px;color:#ffffff;font-size:15px;
+                              font-weight:bold;text-decoration:none;border-radius:6px;">
+                      Accept invite
+                    </a>
+                    <!--<![endif]-->
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="font-size:13px;color:#6b7280;padding-bottom:8px;">
+              Or copy this link into your browser:
+            </td>
+          </tr>
+          <tr>
+            <td style="font-size:12px;color:#2563eb;word-break:break-all;
+                       background:#f3f4f6;padding:10px;border-radius:4px;">
+              ${link}
+            </td>
+          </tr>
+          <tr>
+            <td style="font-size:12px;color:#9ca3af;padding-top:24px;">
+              If you weren't expecting this invitation, you can ignore this email.
+            </td>
+          </tr>
+        </table>
       </td>
     </tr>
   </table>
-
-  <p>Or copy this URL into your browser:<br/>
-  <a href="${link}" style="color:#2563eb;word-break:break-all;">${link}</a></p>
-  <p style="color:#6b7280;font-size:13px;">
-    If you weren't expecting this invitation, you can ignore this email.
-  </p>
 </body>
 </html>`;
 
