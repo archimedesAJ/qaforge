@@ -33,13 +33,13 @@ await app.register(jwt, {
 await app.register(multipart, { limits: { fileSize: 5 * 1024 * 1024 } }); // 5 MB
 
 // ── Routes ───────────────────────────────────────────────────
-await app.register(authRoutes, { prefix: '/auth' });
-await app.register(projectsRoutes, { prefix: '/projects' });
-await app.register(casesRoutes, { prefix: '/projects' });
-await app.register(runsRoutes, { prefix: '/projects' });
-await app.register(insightsRoutes, { prefix: '/projects' });
-await app.register(aiRoutes, { prefix: '/projects' });
-await app.register(uploadsRoutes, { prefix: '/uploads' });
+await app.register(authRoutes,     { prefix: '/api/auth' });
+await app.register(projectsRoutes, { prefix: '/api/projects' });
+await app.register(casesRoutes,    { prefix: '/api/projects' });
+await app.register(runsRoutes,     { prefix: '/api/projects' });
+await app.register(insightsRoutes, { prefix: '/api/projects' });
+await app.register(aiRoutes,       { prefix: '/api/projects' });
+await app.register(uploadsRoutes,  { prefix: '/api/uploads' });
 
 // ── Health check ─────────────────────────────────────────────
 app.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));

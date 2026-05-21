@@ -1,4 +1,4 @@
-const BASE_URL = '/'; // Proxied through Vite dev server to localhost:3001
+const BASE_URL = '/api';
 
 class ApiError extends Error {
   constructor(
