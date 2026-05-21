@@ -68,11 +68,6 @@ export function LoginPage() {
           <Link to="/register" style={styles.link}>Create one</Link>
         </p>
 
-        <div style={styles.demoBox}>
-          <div style={styles.demoTitle}>Demo credentials</div>
-          <div style={styles.demoRow}><span>Email</span><code>ama@example.com</code></div>
-          <div style={styles.demoRow}><span>Password</span><code>password123</code></div>
-        </div>
       </div>
     </div>
   );
