@@ -58,7 +58,7 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
   // GET /projects/:projectId/cases — viewer+
   app.get('/:projectId/cases', { preHandler: requireRole('viewer') }, async (req) => {
     const { projectId } = req.params as { projectId: string };
-    const { suiteId, type, priority, tag, page = '1', limit = '50' } =
+    const { suiteId, type, priority, tag, q, page = '1', limit = '25' } =
       req.query as Record<string, string>;
 
     const where: Record<string, unknown> = {
@@ -68,6 +68,7 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
       ...(type && { type }),
       ...(priority && { priority }),
       ...(tag && { tags: { path: '$[*]', equals: tag } }),
+      ...(q && { title: { contains: q, mode: 'insensitive' } }),
     };
 
     const [data, total] = await Promise.all([

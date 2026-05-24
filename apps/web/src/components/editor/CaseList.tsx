@@ -37,26 +37,35 @@ interface CaseListProps {
   onNew: () => void;
 }
 
+const PAGE_SIZE = 25;
+
 export function CaseList({ projectId, suiteId, canEdit = true, onEdit, onNew }: CaseListProps) {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<TestType | 'all'>('all');
   const [priorityFilter, setPriorityFilter] = useState<Priority | 'all'>('all');
+  const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmBulk, setConfirmBulk]     = useState(false);
   const [confirmSingle, setConfirmSingle] = useState<{ id: string; title: string } | null>(null);
   const [showImport, setShowImport] = useState(false);
 
+  // Reset to page 1 whenever filters change
+  useEffect(() => { setPage(1); setSelected(new Set()); }, [suiteId, typeFilter, priorityFilter, search]);
+
   const params = new URLSearchParams();
   if (suiteId) params.set('suiteId', suiteId);
   if (typeFilter !== 'all') params.set('type', typeFilter);
   if (priorityFilter !== 'all') params.set('priority', priorityFilter);
+  if (search) params.set('q', search);
+  params.set('page', String(page));
+  params.set('limit', String(PAGE_SIZE));
 
   const { data, isLoading } = useQuery({
-    queryKey: ['cases', projectId, suiteId, typeFilter, priorityFilter],
+    queryKey: ['cases', projectId, suiteId, typeFilter, priorityFilter, search, page],
     queryFn: () =>
-      api.get<{ data: TestCase[]; pagination: { total: number } }>(
-        `projects/${projectId}/cases${params.toString() ? `?${params}` : ''}`
+      api.get<{ data: TestCase[]; pagination: { page: number; limit: number; total: number } }>(
+        `projects/${projectId}/cases?${params}`
       ),
     enabled: !!projectId,
   });
@@ -68,10 +77,9 @@ export function CaseList({ projectId, suiteId, canEdit = true, onEdit, onNew }: 
   });
 
   const cases = data?.data ?? [];
-
-  const filtered = cases.filter(tc =>
-    !search || tc.title.toLowerCase().includes(search.toLowerCase())
-  );
+  const total = data?.pagination?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const filtered = cases;
 
   function toggleSelect(id: string) {
     setSelected(prev => {
@@ -136,7 +144,7 @@ export function CaseList({ projectId, suiteId, canEdit = true, onEdit, onNew }: 
           </select>
           <div style={{ flex: 1 }} />
           <span style={{ fontSize: '0.8125rem', color: 'var(--gray-400)' }}>
-            {filtered.length} case{filtered.length !== 1 ? 's' : ''}
+            {total} case{total !== 1 ? 's' : ''}
           </span>
           {canEdit && <Button variant="secondary" size="sm" onClick={() => setShowImport(true)}>Import CSV</Button>}
           {canEdit && <Button variant="primary" size="sm" onClick={onNew}>+ New case</Button>}
@@ -166,7 +174,7 @@ export function CaseList({ projectId, suiteId, canEdit = true, onEdit, onNew }: 
         )}
 
         {/* Table */}
-        <div style={{ flex: 1, overflowY: 'auto' }}>
+        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
           {isLoading && (
             <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
               <Spinner size="lg" />
@@ -210,6 +218,39 @@ export function CaseList({ projectId, suiteId, canEdit = true, onEdit, onNew }: 
                 ))}
               </tbody>
             </table>
+          )}
+
+          {/* Pagination bar */}
+          {totalPages > 1 && (
+            <div style={{
+              marginTop: 'auto',
+              padding: '10px 16px',
+              borderTop: '1px solid var(--border-color)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: '0.8125rem',
+              color: 'var(--gray-500)',
+              background: 'var(--surface-base)',
+            }}>
+              <span>Page {page} of {totalPages}</span>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <Button
+                  variant="secondary" size="sm"
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="secondary" size="sm"
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
           )}
         </div>
       </div>
