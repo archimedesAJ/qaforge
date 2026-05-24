@@ -9,7 +9,7 @@ import type { TestCase, TestType, Priority, ManualStep } from '@qaforge/types';
 const TEST_TYPES: Array<{ value: TestType; label: string; desc: string }> = [
   { value: 'manual',      label: 'Manual',      desc: 'Human-executed step checklist' },
   { value: 'functional',  label: 'Functional',  desc: 'Business logic verification' },
-  { value: 'ui_auto',     label: 'UI Automation', desc: 'Playwright / Cypress / Selenium' },
+  { value: 'ui_auto',     label: 'UI Automation', desc: 'Playwright / Cypress / Selenium / Appium' },
   { value: 'api',         label: 'API',         desc: 'HTTP request + assertions' },
   { value: 'perf',        label: 'Performance', desc: 'k6 / Locust / JMeter' },
   { value: 'exploratory', label: 'Exploratory', desc: 'Session-based, free-form' },
@@ -323,6 +323,7 @@ export function CaseEditor({
                 { value: 'Cypress', label: 'Cypress' },
                 { value: 'Selenium', label: 'Selenium' },
                 { value: 'WebdriverIO', label: 'WebdriverIO' },
+                { value: 'Appium', label: 'Appium' },
               ]}
             />
             <Input

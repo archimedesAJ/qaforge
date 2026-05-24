@@ -216,11 +216,24 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
         }
         suiteId = suiteMap.get(suiteKey);
       }
-      const steps    = parseSteps(row['steps'] ?? '');
+      const VALID_FRAMEWORKS = new Set(['Playwright', 'Cypress', 'Selenium', 'WebdriverIO', 'Appium']);
+      let stepsData: unknown;
+      if (type === 'ui_auto') {
+        const framework = VALID_FRAMEWORKS.has(row['framework'] ?? '') ? row['framework'] : 'Playwright';
+        stepsData = {
+          framework,
+          scriptPath:  row['script_path']?.trim() ?? '',
+          testName:    row['test_name']?.trim()   ?? '',
+          description: row['description']?.trim() ?? '',
+        };
+      } else {
+        const parsed = parseSteps(row['steps'] ?? '');
+        stepsData = parsed.length ? parsed : undefined;
+      }
 
       try {
         await prisma.testCase.create({
-          data: { projectId, title, type, priority, tags, suiteId, steps: steps.length ? steps : undefined, version: 1, createdById: userId },
+          data: { projectId, title, type, priority, tags, suiteId, steps: stepsData as object | undefined, version: 1, createdById: userId },
         });
         existingTitles.add(title.toLowerCase()); // prevent in-file duplicates too
         imported++;
