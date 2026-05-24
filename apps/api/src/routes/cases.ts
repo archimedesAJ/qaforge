@@ -203,9 +203,10 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
 
       if (existingTitles.has(title.toLowerCase())) { skipped++; continue; }
 
-      const type     = VALID_TYPES.has(row['type'] ?? '')     ? row['type']     : 'manual';
-      const priority = VALID_PRIOS.has(row['priority'] ?? '') ? row['priority'] : 'p2';
-      const tags     = row['tags']  ? row['tags'].split(',').map((t: string) => t.trim()).filter(Boolean) : [];
+      const type         = VALID_TYPES.has(row['type'] ?? '')     ? row['type']     : 'manual';
+      const priority     = VALID_PRIOS.has(row['priority'] ?? '') ? row['priority'] : 'p2';
+      const tags         = row['tags']  ? row['tags'].split(',').map((t: string) => t.trim()).filter(Boolean) : [];
+      const preconditions = row['preconditions']?.trim() || undefined;
       let suiteId: string | undefined;
       if (row['suite']) {
         const suiteName = row['suite'].trim();
@@ -233,7 +234,7 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
 
       try {
         await prisma.testCase.create({
-          data: { projectId, title, type, priority, tags, suiteId, steps: stepsData as object | undefined, version: 1, createdById: userId },
+          data: { projectId, title, type, priority, tags, suiteId, preconditions, steps: stepsData as object | undefined, version: 1, createdById: userId },
         });
         existingTitles.add(title.toLowerCase()); // prevent in-file duplicates too
         imported++;
