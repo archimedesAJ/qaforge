@@ -206,7 +206,16 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
       const type     = VALID_TYPES.has(row['type'] ?? '')     ? row['type']     : 'manual';
       const priority = VALID_PRIOS.has(row['priority'] ?? '') ? row['priority'] : 'p2';
       const tags     = row['tags']  ? row['tags'].split(',').map((t: string) => t.trim()).filter(Boolean) : [];
-      const suiteId  = row['suite'] ? (suiteMap.get(row['suite'].toLowerCase().trim()) ?? undefined) : undefined;
+      let suiteId: string | undefined;
+      if (row['suite']) {
+        const suiteName = row['suite'].trim();
+        const suiteKey  = suiteName.toLowerCase();
+        if (!suiteMap.has(suiteKey)) {
+          const newSuite = await prisma.testSuite.create({ data: { projectId, name: suiteName } });
+          suiteMap.set(suiteKey, newSuite.id);
+        }
+        suiteId = suiteMap.get(suiteKey);
+      }
       const steps    = parseSteps(row['steps'] ?? '');
 
       try {
