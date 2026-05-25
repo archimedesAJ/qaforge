@@ -239,6 +239,55 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(204).send();
   });
 
+  // GET /projects/:projectId/cases/:caseId/links — viewer+
+  app.get('/:projectId/cases/:caseId/links', { preHandler: requireRole('viewer') }, async (req, reply) => {
+    const { caseId } = req.params as { caseId: string };
+    const testCase = await prisma.testCase.findUnique({ where: { id: caseId }, select: { lineageId: true } });
+    if (!testCase) return reply.code(404).send({ error: 'Test case not found' });
+
+    const links = await prisma.caseLink.findMany({
+      where: { lineageId: testCase.lineageId ?? caseId },
+      orderBy: { createdAt: 'asc' },
+      include: { createdBy: { select: { id: true, name: true } } },
+    });
+    return { links };
+  });
+
+  // POST /projects/:projectId/cases/:caseId/links — editor+
+  app.post('/:projectId/cases/:caseId/links', { preHandler: requireRole('editor') }, async (req, reply) => {
+    const { caseId } = req.params as { caseId: string };
+    const { userId } = req.user as { userId: string };
+    const { type, label, url } = req.body as { type: string; label: string; url?: string };
+
+    const VALID_TYPES = new Set(['jira', 'github', 'requirement', 'other']);
+    if (!VALID_TYPES.has(type)) return reply.code(400).send({ error: 'Invalid link type' });
+    if (!label?.trim()) return reply.code(400).send({ error: 'Label is required' });
+
+    const testCase = await prisma.testCase.findUnique({ where: { id: caseId }, select: { lineageId: true } });
+    if (!testCase) return reply.code(404).send({ error: 'Test case not found' });
+
+    const link = await prisma.caseLink.create({
+      data: {
+        lineageId: testCase.lineageId ?? caseId,
+        type,
+        label: label.trim(),
+        url: url?.trim() || null,
+        createdById: userId,
+      },
+      include: { createdBy: { select: { id: true, name: true } } },
+    });
+    return reply.code(201).send(link);
+  });
+
+  // DELETE /projects/:projectId/cases/:caseId/links/:linkId — editor+
+  app.delete('/:projectId/cases/:caseId/links/:linkId', { preHandler: requireRole('editor') }, async (req, reply) => {
+    const { linkId } = req.params as { caseId: string; linkId: string };
+    const link = await prisma.caseLink.findUnique({ where: { id: linkId } });
+    if (!link) return reply.code(404).send({ error: 'Link not found' });
+    await prisma.caseLink.delete({ where: { id: linkId } });
+    return reply.code(204).send();
+  });
+
   // POST /projects/:projectId/cases/import/csv — editor+
   app.post('/:projectId/cases/import/csv', { preHandler: requireRole('editor') }, async (req, reply) => {
     const { projectId } = req.params as { projectId: string };

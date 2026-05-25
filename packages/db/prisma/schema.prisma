@@ -25,6 +25,7 @@ model User {
   casesCreated   TestCase[]      @relation("CaseAuthor")
   sentInvites    UserInvite[]    @relation("InviteSender")
   comments       CaseComment[]   @relation("CommentAuthor")
+  caseLinks      CaseLink[]      @relation("LinkAuthor")
 }
 
 model Project {
@@ -120,6 +121,18 @@ model TestCase {
   createdBy  User       @relation("CaseAuthor", fields: [createdById], references: [id])
   results    RunResult[]
   runCases   RunCase[]
+}
+
+model CaseLink {
+  id          String   @id @default(uuid())
+  lineageId   String
+  type        String   // jira | github | requirement | other
+  label       String
+  url         String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  createdBy User @relation("LinkAuthor", fields: [createdById], references: [id])
 }
 
 model CaseComment {

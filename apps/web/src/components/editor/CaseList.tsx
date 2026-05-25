@@ -51,6 +51,7 @@ export function CaseList({ projectId, suiteId, canEdit = true, onEdit, onNew }: 
   const [showImport, setShowImport] = useState(false);
   const [historyCase, setHistoryCase] = useState<TestCase | null>(null);
   const [commentsCase, setCommentsCase] = useState<TestCase | null>(null);
+  const [linksCase, setLinksCase] = useState<TestCase | null>(null);
 
   // Reset to page 1 whenever filters change
   useEffect(() => { setPage(1); setSelected(new Set()); }, [suiteId, typeFilter, priorityFilter, search]);
@@ -218,6 +219,7 @@ export function CaseList({ projectId, suiteId, canEdit = true, onEdit, onNew }: 
                     onDelete={() => setConfirmSingle({ id: tc.id, title: tc.title })}
                     onHistory={() => setHistoryCase(tc)}
                     onComments={() => setCommentsCase(tc)}
+                    onLinks={() => setLinksCase(tc)}
                   />
                 ))}
               </tbody>
@@ -268,6 +270,13 @@ export function CaseList({ projectId, suiteId, canEdit = true, onEdit, onNew }: 
           qc.invalidateQueries({ queryKey: ['suites', projectId] });
           setShowImport(false);
         }}
+      />
+
+      <CaseLinksModal
+        projectId={projectId}
+        tc={linksCase}
+        canEdit={canEdit}
+        onClose={() => setLinksCase(null)}
       />
 
       <CaseCommentsModal
@@ -425,6 +434,170 @@ function CsvImportModal({
               ))}
             </div>
           )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// ── Case Links Modal ──────────────────────────────────────────
+interface CaseLink {
+  id: string;
+  type: string;
+  label: string;
+  url?: string;
+  createdAt: string;
+  createdBy: { id: string; name: string };
+}
+
+const LINK_TYPES = [
+  { value: 'jira',        label: 'Jira',        color: '#0052CC', bg: '#E6F0FF' },
+  { value: 'github',      label: 'GitHub',      color: '#24292F', bg: '#F0F0F0' },
+  { value: 'requirement', label: 'Requirement',  color: '#6B21A8', bg: '#F3E8FF' },
+  { value: 'other',       label: 'Other',        color: '#374151', bg: '#F3F4F6' },
+];
+
+function linkMeta(type: string) {
+  return LINK_TYPES.find(t => t.value === type) ?? LINK_TYPES[3];
+}
+
+function CaseLinksModal({ projectId, tc, canEdit, onClose }: {
+  projectId: string;
+  tc: TestCase | null;
+  canEdit: boolean;
+  onClose: () => void;
+}) {
+  const [type, setType]   = useState('jira');
+  const [label, setLabel] = useState('');
+  const [url, setUrl]     = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['links', tc?.id],
+    queryFn: () => api.get<{ links: CaseLink[] }>(`projects/${projectId}/cases/${tc!.id}/links`),
+    enabled: !!tc,
+  });
+
+  const links = data?.links ?? [];
+
+  useEffect(() => { if (!tc) { setLabel(''); setUrl(''); setError(''); } }, [tc]);
+
+  async function submit() {
+    if (!label.trim()) { setError('Label is required'); return; }
+    setSubmitting(true); setError('');
+    try {
+      await api.post(`projects/${projectId}/cases/${tc!.id}/links`, { type, label, url: url || undefined });
+      setLabel(''); setUrl('');
+      refetch();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to add link');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function deleteLink(linkId: string) {
+    await api.delete(`projects/${projectId}/cases/${tc!.id}/links/${linkId}`);
+    refetch();
+  }
+
+  return (
+    <Modal
+      open={!!tc}
+      onClose={onClose}
+      title={`Linked references — ${tc?.title ?? ''}`}
+      footer={<Button variant="secondary" onClick={onClose}>Close</Button>}
+    >
+      {isLoading && <div style={{ textAlign: 'center', padding: 24 }}><Spinner /></div>}
+
+      {!isLoading && links.length === 0 && (
+        <p style={{ color: 'var(--gray-400)', fontSize: '0.875rem', textAlign: 'center', padding: '8px 0 16px' }}>
+          No linked references yet.
+        </p>
+      )}
+
+      {links.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+          {links.map(l => {
+            const meta = linkMeta(l.type);
+            return (
+              <div key={l.id} style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '8px 12px', border: '1px solid var(--border-color)',
+                borderRadius: 8, background: '#fff',
+              }}>
+                <span style={{
+                  fontSize: '0.7rem', fontWeight: 700, padding: '2px 8px',
+                  borderRadius: 10, background: meta.bg, color: meta.color,
+                  flexShrink: 0,
+                }}>
+                  {meta.label}
+                </span>
+                {l.url ? (
+                  <a href={l.url} target="_blank" rel="noopener noreferrer"
+                    style={{ fontSize: '0.875rem', color: 'var(--color-primary)', fontWeight: 500, flex: 1, textDecoration: 'none' }}>
+                    {l.label} ↗
+                  </a>
+                ) : (
+                  <span style={{ fontSize: '0.875rem', color: 'var(--gray-700)', flex: 1 }}>{l.label}</span>
+                )}
+                <span style={{ fontSize: '0.75rem', color: 'var(--gray-400)', flexShrink: 0 }}>
+                  {l.createdBy.name}
+                </span>
+                {canEdit && (
+                  <button onClick={() => deleteLink(l.id)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-danger)', fontSize: '0.8rem', padding: 0, flexShrink: 0 }}>
+                    ✕
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {canEdit && (
+        <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 16 }}>
+          <div style={{ fontWeight: 600, fontSize: '0.8125rem', color: 'var(--gray-600)', marginBottom: 10 }}>
+            Add reference
+          </div>
+          {error && <div style={{ marginBottom: 8 }}><Alert type="error">{error}</Alert></div>}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            <select
+              value={type}
+              onChange={e => setType(e.target.value)}
+              style={{
+                padding: '7px 10px', border: '1px solid var(--border-color)',
+                borderRadius: 6, fontSize: '0.875rem', background: '#fff',
+              }}
+            >
+              {LINK_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+            <input
+              value={label}
+              onChange={e => setLabel(e.target.value)}
+              placeholder={type === 'jira' ? 'e.g. PROJ-123' : type === 'github' ? 'e.g. #456' : 'Requirement label'}
+              style={{
+                flex: 1, padding: '7px 10px', border: '1px solid var(--border-color)',
+                borderRadius: 6, fontSize: '0.875rem',
+              }}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              value={url}
+              onChange={e => setUrl(e.target.value)}
+              placeholder="URL (optional)"
+              style={{
+                flex: 1, padding: '7px 10px', border: '1px solid var(--border-color)',
+                borderRadius: 6, fontSize: '0.875rem',
+              }}
+            />
+            <Button variant="primary" onClick={submit} loading={submitting} disabled={!label.trim()}>
+              Add
+            </Button>
+          </div>
         </div>
       )}
     </Modal>
@@ -727,7 +900,7 @@ function CaseHistoryModal({ projectId, tc, onClose }: {
 }
 
 function CaseRow({
-  tc, selected, canEdit, onToggle, onEdit, onDelete, onHistory, onComments,
+  tc, selected, canEdit, onToggle, onEdit, onDelete, onHistory, onComments, onLinks,
 }: {
   tc: TestCase;
   selected: boolean;
@@ -737,6 +910,7 @@ function CaseRow({
   onDelete: () => void;
   onHistory: () => void;
   onComments: () => void;
+  onLinks: () => void;
 }) {
   return (
     <tr style={{ background: selected ? 'var(--color-primary-light)' : undefined }}>
@@ -791,6 +965,11 @@ function CaseRow({
             title="Comments & discussion"
             style={{ padding: '3px 8px', fontSize: '0.8125rem', color: 'var(--gray-400)' }}>
             💬
+          </Button>
+          <Button variant="ghost" size="sm" onClick={onLinks}
+            title="Linked references"
+            style={{ padding: '3px 8px', fontSize: '0.8125rem', color: 'var(--gray-400)' }}>
+            🔗
           </Button>
           {canEdit && (
             <>
