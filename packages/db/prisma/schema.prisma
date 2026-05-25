@@ -99,6 +99,7 @@ model TestSuite {
 
 model TestCase {
   id            String    @id @default(uuid())
+  lineageId     String?
   projectId     String
   suiteId       String?
   title         String

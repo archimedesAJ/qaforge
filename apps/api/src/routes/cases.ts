@@ -107,7 +107,13 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
       },
     });
 
-    return reply.code(201).send(testCase);
+    // Set lineageId to own id (first version anchors the lineage)
+    await prisma.testCase.update({
+      where: { id: testCase.id },
+      data: { lineageId: testCase.id },
+    });
+
+    return reply.code(201).send({ ...testCase, lineageId: testCase.id });
   });
 
   // GET /projects/:projectId/cases/:caseId — viewer+
@@ -134,10 +140,11 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
       data: { archived: true },
     });
 
-    // Create new version with incremented version number
+    // Create new version, carrying lineageId forward
     const newCase = await prisma.testCase.create({
       data: {
         projectId,
+        lineageId: existing.lineageId ?? existing.id,
         title: body.title ?? existing.title,
         type: body.type ?? existing.type,
         priority: body.priority ?? existing.priority,
@@ -152,6 +159,24 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
     });
 
     return { ...newCase, previousVersion: existing.version };
+  });
+
+  // GET /projects/:projectId/cases/:caseId/history — viewer+
+  app.get('/:projectId/cases/:caseId/history', { preHandler: requireRole('viewer') }, async (req, reply) => {
+    const { caseId } = req.params as { caseId: string };
+
+    const testCase = await prisma.testCase.findUnique({ where: { id: caseId }, select: { lineageId: true } });
+    if (!testCase) return reply.code(404).send({ error: 'Test case not found' });
+
+    const lineageId = testCase.lineageId ?? caseId;
+
+    const versions = await prisma.testCase.findMany({
+      where: { lineageId },
+      orderBy: { version: 'asc' },
+      include: { createdBy: { select: { id: true, name: true, email: true } } },
+    });
+
+    return { versions };
   });
 
   // DELETE /projects/:projectId/cases/:caseId — editor+ (archive)
@@ -233,9 +258,10 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
       }
 
       try {
-        await prisma.testCase.create({
+        const created = await prisma.testCase.create({
           data: { projectId, title, type, priority, tags, suiteId, preconditions, steps: stepsData as object | undefined, version: 1, createdById: userId },
         });
+        await prisma.testCase.update({ where: { id: created.id }, data: { lineageId: created.id } });
         existingTitles.add(title.toLowerCase()); // prevent in-file duplicates too
         imported++;
       } catch (err) {

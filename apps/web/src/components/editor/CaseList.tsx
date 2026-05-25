@@ -49,6 +49,7 @@ export function CaseList({ projectId, suiteId, canEdit = true, onEdit, onNew }: 
   const [confirmBulk, setConfirmBulk]     = useState(false);
   const [confirmSingle, setConfirmSingle] = useState<{ id: string; title: string } | null>(null);
   const [showImport, setShowImport] = useState(false);
+  const [historyCase, setHistoryCase] = useState<TestCase | null>(null);
 
   // Reset to page 1 whenever filters change
   useEffect(() => { setPage(1); setSelected(new Set()); }, [suiteId, typeFilter, priorityFilter, search]);
@@ -214,6 +215,7 @@ export function CaseList({ projectId, suiteId, canEdit = true, onEdit, onNew }: 
                     onToggle={() => toggleSelect(tc.id)}
                     onEdit={() => onEdit(tc)}
                     onDelete={() => setConfirmSingle({ id: tc.id, title: tc.title })}
+                    onHistory={() => setHistoryCase(tc)}
                   />
                 ))}
               </tbody>
@@ -264,6 +266,12 @@ export function CaseList({ projectId, suiteId, canEdit = true, onEdit, onNew }: 
           qc.invalidateQueries({ queryKey: ['suites', projectId] });
           setShowImport(false);
         }}
+      />
+
+      <CaseHistoryModal
+        projectId={projectId}
+        tc={historyCase}
+        onClose={() => setHistoryCase(null)}
       />
 
       {/* Bulk delete confirm */}
@@ -415,8 +423,141 @@ function CsvImportModal({
   );
 }
 
+// ── Case History Modal ────────────────────────────────────────
+interface VersionRecord {
+  id: string;
+  version: number;
+  type: string;
+  title: string;
+  archived: boolean;
+  createdAt: string;
+  preconditions?: string;
+  steps?: unknown;
+  createdBy: { name: string; email: string };
+}
+
+function CaseHistoryModal({ projectId, tc, onClose }: {
+  projectId: string;
+  tc: TestCase | null;
+  onClose: () => void;
+}) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['case-history', tc?.id],
+    queryFn: () => api.get<{ versions: VersionRecord[] }>(`projects/${projectId}/cases/${tc!.id}/history`),
+    enabled: !!tc,
+  });
+
+  const versions = data?.versions ?? [];
+
+  function formatSteps(steps: unknown, type: string): string {
+    if (!steps) return '—';
+    if (type === 'ui_auto') {
+      const s = steps as Record<string, string>;
+      return `Framework: ${s.framework ?? '—'}\nScript: ${s.scriptPath ?? '—'}\nTest: ${s.testName ?? '—'}`;
+    }
+    if (type === 'exploratory') {
+      const s = steps as Record<string, unknown>;
+      return `Charter: ${s.charter ?? '—'}`;
+    }
+    if (Array.isArray(steps)) {
+      return (steps as { order: number; action: string; expected: string }[])
+        .map(s => `${s.order}. ${s.action} → ${s.expected}`)
+        .join('\n');
+    }
+    return JSON.stringify(steps, null, 2);
+  }
+
+  return (
+    <Modal
+      open={!!tc}
+      onClose={onClose}
+      title={`Version history — ${tc?.title ?? ''}`}
+      footer={<Button variant="secondary" onClick={onClose}>Close</Button>}
+    >
+      {isLoading && <div style={{ textAlign: 'center', padding: 24 }}><Spinner /></div>}
+      {!isLoading && versions.length === 0 && (
+        <p style={{ color: 'var(--gray-500)', fontSize: '0.875rem' }}>No history found.</p>
+      )}
+      {versions.map((v, idx) => {
+        const isCurrent = !v.archived;
+        const isOpen = expanded === v.id;
+        return (
+          <div key={v.id} style={{
+            border: '1px solid var(--border-color)',
+            borderRadius: 8,
+            marginBottom: 8,
+            overflow: 'hidden',
+            opacity: v.archived ? 0.7 : 1,
+          }}>
+            <div
+              onClick={() => setExpanded(isOpen ? null : v.id)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '10px 14px', cursor: 'pointer',
+                background: isCurrent ? 'var(--color-primary-light)' : 'var(--gray-50)',
+              }}
+            >
+              <span style={{ fontWeight: 700, fontSize: '0.875rem', color: isCurrent ? 'var(--color-primary)' : 'var(--gray-500)' }}>
+                v{v.version}
+              </span>
+              <span className={`badge ${TYPE_COLORS[v.type as TestType] ?? 'badge-p3'}`} style={{ fontSize: '0.7rem' }}>
+                {TYPE_LABELS[v.type as TestType] ?? v.type}
+              </span>
+              {isCurrent && (
+                <span style={{ fontSize: '0.7rem', padding: '1px 6px', background: 'var(--color-primary)', color: '#fff', borderRadius: 10 }}>
+                  current
+                </span>
+              )}
+              {v.archived && (
+                <span style={{ fontSize: '0.7rem', padding: '1px 6px', background: 'var(--gray-200)', color: 'var(--gray-500)', borderRadius: 10 }}>
+                  archived
+                </span>
+              )}
+              <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: 'var(--gray-400)' }}>
+                {v.createdBy.name} · {new Date(v.createdAt).toLocaleDateString()}
+              </span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--gray-400)' }}>{isOpen ? '▲' : '▼'}</span>
+            </div>
+
+            {isOpen && (
+              <div style={{ padding: '12px 14px', borderTop: '1px solid var(--border-color)', background: '#fff', fontSize: '0.8125rem' }}>
+                {v.preconditions && (
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontWeight: 600, color: 'var(--gray-600)', marginBottom: 4 }}>Preconditions</div>
+                    <div style={{ color: 'var(--gray-700)', lineHeight: 1.6 }}>{v.preconditions}</div>
+                  </div>
+                )}
+                <div>
+                  <div style={{ fontWeight: 600, color: 'var(--gray-600)', marginBottom: 4 }}>
+                    {v.type === 'ui_auto' ? 'Automation config' : v.type === 'exploratory' ? 'Charter' : 'Steps'}
+                  </div>
+                  <pre style={{
+                    margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                    color: 'var(--gray-700)', lineHeight: 1.7,
+                    background: 'var(--gray-50)', padding: '8px 10px', borderRadius: 6,
+                    fontSize: '0.8rem',
+                  }}>
+                    {formatSteps(v.steps, v.type)}
+                  </pre>
+                </div>
+                {idx < versions.length - 1 && versions.length > 1 && (
+                  <div style={{ marginTop: 10, fontSize: '0.75rem', color: 'var(--gray-400)' }}>
+                    Upgraded from v{versions[idx].version} → v{versions[idx + 1].version}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </Modal>
+  );
+}
+
 function CaseRow({
-  tc, selected, canEdit, onToggle, onEdit, onDelete,
+  tc, selected, canEdit, onToggle, onEdit, onDelete, onHistory,
 }: {
   tc: TestCase;
   selected: boolean;
@@ -424,6 +565,7 @@ function CaseRow({
   onToggle: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onHistory: () => void;
 }) {
   return (
     <tr style={{ background: selected ? 'var(--color-primary-light)' : undefined }}>
@@ -468,18 +610,25 @@ function CaseRow({
         v{tc.version}
       </td>
       <td>
-        {canEdit && (
-          <div style={{ display: 'flex', gap: 4 }}>
-            <Button variant="ghost" size="sm" onClick={onEdit}
-              style={{ padding: '3px 8px', fontSize: '0.8125rem' }}>
-              Edit
-            </Button>
-            <Button variant="ghost" size="sm" onClick={onDelete}
-              style={{ padding: '3px 8px', fontSize: '0.8125rem', color: 'var(--color-danger)' }}>
-              ✕
-            </Button>
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: 4 }}>
+          <Button variant="ghost" size="sm" onClick={onHistory}
+            title="View version history"
+            style={{ padding: '3px 8px', fontSize: '0.8125rem', color: 'var(--gray-400)' }}>
+            ⏱
+          </Button>
+          {canEdit && (
+            <>
+              <Button variant="ghost" size="sm" onClick={onEdit}
+                style={{ padding: '3px 8px', fontSize: '0.8125rem' }}>
+                Edit
+              </Button>
+              <Button variant="ghost" size="sm" onClick={onDelete}
+                style={{ padding: '3px 8px', fontSize: '0.8125rem', color: 'var(--color-danger)' }}>
+                ✕
+              </Button>
+            </>
+          )}
+        </div>
       </td>
     </tr>
   );
