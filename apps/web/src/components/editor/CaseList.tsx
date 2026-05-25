@@ -261,6 +261,7 @@ export function CaseList({ projectId, suiteId, canEdit = true, onEdit, onNew }: 
         onClose={() => setShowImport(false)}
         onImported={() => {
           qc.invalidateQueries({ queryKey: ['cases', projectId] });
+          qc.invalidateQueries({ queryKey: ['suites', projectId] });
           setShowImport(false);
         }}
       />
