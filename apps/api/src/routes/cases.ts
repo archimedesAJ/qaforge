@@ -186,6 +186,59 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(204).send();
   });
 
+  // GET /projects/:projectId/cases/:caseId/comments — viewer+
+  app.get('/:projectId/cases/:caseId/comments', { preHandler: requireRole('viewer') }, async (req, reply) => {
+    const { caseId } = req.params as { caseId: string };
+    const testCase = await prisma.testCase.findUnique({ where: { id: caseId }, select: { lineageId: true } });
+    if (!testCase) return reply.code(404).send({ error: 'Test case not found' });
+
+    const lineageId = testCase.lineageId ?? caseId;
+    const comments = await prisma.caseComment.findMany({
+      where: { lineageId, parentId: null },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        createdBy: { select: { id: true, name: true, email: true } },
+        replies: {
+          orderBy: { createdAt: 'asc' },
+          include: { createdBy: { select: { id: true, name: true, email: true } } },
+        },
+      },
+    });
+    return { comments };
+  });
+
+  // POST /projects/:projectId/cases/:caseId/comments — viewer+
+  app.post('/:projectId/cases/:caseId/comments', { preHandler: requireRole('viewer') }, async (req, reply) => {
+    const { caseId } = req.params as { caseId: string };
+    const { userId } = req.user as { userId: string };
+    const { content, parentId } = req.body as { content: string; parentId?: string };
+
+    if (!content?.trim()) return reply.code(400).send({ error: 'Comment content is required' });
+
+    const testCase = await prisma.testCase.findUnique({ where: { id: caseId }, select: { lineageId: true } });
+    if (!testCase) return reply.code(404).send({ error: 'Test case not found' });
+
+    const lineageId = testCase.lineageId ?? caseId;
+    const comment = await prisma.caseComment.create({
+      data: { lineageId, content: content.trim(), parentId: parentId ?? null, createdById: userId },
+      include: { createdBy: { select: { id: true, name: true, email: true } } },
+    });
+    return reply.code(201).send(comment);
+  });
+
+  // DELETE /projects/:projectId/cases/:caseId/comments/:commentId — own comment or manager+
+  app.delete('/:projectId/cases/:caseId/comments/:commentId', { preHandler: requireRole('viewer') }, async (req, reply) => {
+    const { commentId } = req.params as { caseId: string; commentId: string };
+    const { userId } = req.user as { userId: string };
+
+    const comment = await prisma.caseComment.findUnique({ where: { id: commentId } });
+    if (!comment) return reply.code(404).send({ error: 'Comment not found' });
+    if (comment.createdById !== userId) return reply.code(403).send({ error: 'You can only delete your own comments' });
+
+    await prisma.caseComment.delete({ where: { id: commentId } });
+    return reply.code(204).send();
+  });
+
   // POST /projects/:projectId/cases/import/csv — editor+
   app.post('/:projectId/cases/import/csv', { preHandler: requireRole('editor') }, async (req, reply) => {
     const { projectId } = req.params as { projectId: string };

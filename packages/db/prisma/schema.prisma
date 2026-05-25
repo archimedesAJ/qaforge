@@ -24,6 +24,7 @@ model User {
   memberships    ProjectMember[]
   casesCreated   TestCase[]      @relation("CaseAuthor")
   sentInvites    UserInvite[]    @relation("InviteSender")
+  comments       CaseComment[]   @relation("CommentAuthor")
 }
 
 model Project {
@@ -119,6 +120,21 @@ model TestCase {
   createdBy  User       @relation("CaseAuthor", fields: [createdById], references: [id])
   results    RunResult[]
   runCases   RunCase[]
+}
+
+model CaseComment {
+  id          String   @id @default(uuid())
+  lineageId   String
+  content     String
+  parentId    String?
+  edited      Boolean  @default(false)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy User          @relation("CommentAuthor", fields: [createdById], references: [id])
+  parent    CaseComment?  @relation("CommentThread", fields: [parentId], references: [id])
+  replies   CaseComment[] @relation("CommentThread")
 }
 
 // ─────────────────────────────────────────────────────────────

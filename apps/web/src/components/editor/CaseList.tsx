@@ -50,6 +50,7 @@ export function CaseList({ projectId, suiteId, canEdit = true, onEdit, onNew }: 
   const [confirmSingle, setConfirmSingle] = useState<{ id: string; title: string } | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [historyCase, setHistoryCase] = useState<TestCase | null>(null);
+  const [commentsCase, setCommentsCase] = useState<TestCase | null>(null);
 
   // Reset to page 1 whenever filters change
   useEffect(() => { setPage(1); setSelected(new Set()); }, [suiteId, typeFilter, priorityFilter, search]);
@@ -216,6 +217,7 @@ export function CaseList({ projectId, suiteId, canEdit = true, onEdit, onNew }: 
                     onEdit={() => onEdit(tc)}
                     onDelete={() => setConfirmSingle({ id: tc.id, title: tc.title })}
                     onHistory={() => setHistoryCase(tc)}
+                    onComments={() => setCommentsCase(tc)}
                   />
                 ))}
               </tbody>
@@ -266,6 +268,12 @@ export function CaseList({ projectId, suiteId, canEdit = true, onEdit, onNew }: 
           qc.invalidateQueries({ queryKey: ['suites', projectId] });
           setShowImport(false);
         }}
+      />
+
+      <CaseCommentsModal
+        projectId={projectId}
+        tc={commentsCase}
+        onClose={() => setCommentsCase(null)}
       />
 
       <CaseHistoryModal
@@ -423,6 +431,168 @@ function CsvImportModal({
   );
 }
 
+// ── Case Comments Modal ───────────────────────────────────────
+interface Comment {
+  id: string;
+  content: string;
+  edited: boolean;
+  createdAt: string;
+  createdBy: { id: string; name: string; email: string };
+  replies: Comment[];
+}
+
+function CaseCommentsModal({ projectId, tc, onClose }: {
+  projectId: string;
+  tc: TestCase | null;
+  onClose: () => void;
+}) {
+  const [text, setText] = useState('');
+  const [replyTo, setReplyTo] = useState<Comment | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const currentUserId = (() => {
+    try {
+      const token = localStorage.getItem('qaforge_token');
+      if (!token) return null;
+      return JSON.parse(atob(token.split('.')[1])).userId as string;
+    } catch { return null; }
+  })();
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['comments', tc?.id],
+    queryFn: () => api.get<{ comments: Comment[] }>(`projects/${projectId}/cases/${tc!.id}/comments`),
+    enabled: !!tc,
+  });
+
+  const comments = data?.comments ?? [];
+
+  useEffect(() => { if (!tc) { setText(''); setReplyTo(null); } }, [tc]);
+
+  async function submit() {
+    if (!text.trim() || !tc) return;
+    setSubmitting(true);
+    try {
+      await api.post(`projects/${projectId}/cases/${tc.id}/comments`, {
+        content: text.trim(),
+        parentId: replyTo?.id ?? undefined,
+      });
+      setText(''); setReplyTo(null);
+      refetch();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function deleteComment(commentId: string) {
+    if (!tc) return;
+    await api.delete(`projects/${projectId}/cases/${tc.id}/comments/${commentId}`);
+    refetch();
+  }
+
+  function CommentBubble({ c, indent = false }: { c: Comment; indent?: boolean }) {
+    return (
+      <div style={{
+        marginLeft: indent ? 32 : 0,
+        marginBottom: 10,
+        padding: '10px 12px',
+        background: indent ? 'var(--gray-50)' : '#fff',
+        border: '1px solid var(--border-color)',
+        borderRadius: 8,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <div style={{
+            width: 28, height: 28, borderRadius: '50%',
+            background: 'var(--color-primary)', color: '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '0.75rem', fontWeight: 700, flexShrink: 0,
+          }}>
+            {c.createdBy.name.charAt(0).toUpperCase()}
+          </div>
+          <span style={{ fontWeight: 600, fontSize: '0.8125rem', color: 'var(--gray-800)' }}>{c.createdBy.name}</span>
+          <span style={{ fontSize: '0.75rem', color: 'var(--gray-400)' }}>
+            {new Date(c.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+          </span>
+          {c.edited && <span style={{ fontSize: '0.7rem', color: 'var(--gray-400)' }}>(edited)</span>}
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+            {!indent && (
+              <button onClick={() => { setReplyTo(c); setText(''); }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.75rem', color: 'var(--color-primary)', padding: 0 }}>
+                Reply
+              </button>
+            )}
+            {c.createdBy.id === currentUserId && (
+              <button onClick={() => deleteComment(c.id)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.75rem', color: 'var(--color-danger)', padding: 0 }}>
+                Delete
+              </button>
+            )}
+          </div>
+        </div>
+        <div style={{ fontSize: '0.875rem', color: 'var(--gray-700)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+          {c.content}
+        </div>
+        {c.replies?.map(r => <CommentBubble key={r.id} c={r} indent />)}
+      </div>
+    );
+  }
+
+  return (
+    <Modal
+      open={!!tc}
+      onClose={onClose}
+      title={`Comments — ${tc?.title ?? ''}`}
+      footer={<Button variant="secondary" onClick={onClose}>Close</Button>}
+    >
+      {isLoading && <div style={{ textAlign: 'center', padding: 24 }}><Spinner /></div>}
+
+      {!isLoading && comments.length === 0 && (
+        <p style={{ color: 'var(--gray-400)', fontSize: '0.875rem', textAlign: 'center', padding: '16px 0' }}>
+          No comments yet. Be the first to comment.
+        </p>
+      )}
+
+      <div style={{ maxHeight: 340, overflowY: 'auto', marginBottom: 16 }}>
+        {comments.map(c => <CommentBubble key={c.id} c={c} />)}
+      </div>
+
+      {replyTo && (
+        <div style={{
+          padding: '6px 10px', background: 'var(--gray-50)',
+          border: '1px solid var(--border-color)', borderRadius: 6,
+          marginBottom: 8, fontSize: '0.8rem', color: 'var(--gray-500)',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        }}>
+          <span>Replying to <strong>{replyTo.createdBy.name}</strong></span>
+          <button onClick={() => setReplyTo(null)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--gray-400)', fontSize: '0.8rem' }}>
+            ✕
+          </button>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <textarea
+          value={text}
+          onChange={e => setText(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }}
+          placeholder={replyTo ? `Reply to ${replyTo.createdBy.name}...` : 'Add a comment... (Ctrl+Enter to post)'}
+          rows={3}
+          style={{
+            flex: 1, padding: '8px 10px', fontSize: '0.875rem',
+            border: '1px solid var(--border-color)', borderRadius: 6,
+            resize: 'vertical', fontFamily: 'inherit',
+          }}
+        />
+        <Button variant="primary" onClick={submit} loading={submitting}
+          disabled={!text.trim()}
+          style={{ alignSelf: 'flex-end' }}>
+          Post
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
 // ── Case History Modal ────────────────────────────────────────
 interface VersionRecord {
   id: string;
@@ -557,7 +727,7 @@ function CaseHistoryModal({ projectId, tc, onClose }: {
 }
 
 function CaseRow({
-  tc, selected, canEdit, onToggle, onEdit, onDelete, onHistory,
+  tc, selected, canEdit, onToggle, onEdit, onDelete, onHistory, onComments,
 }: {
   tc: TestCase;
   selected: boolean;
@@ -566,6 +736,7 @@ function CaseRow({
   onEdit: () => void;
   onDelete: () => void;
   onHistory: () => void;
+  onComments: () => void;
 }) {
   return (
     <tr style={{ background: selected ? 'var(--color-primary-light)' : undefined }}>
@@ -615,6 +786,11 @@ function CaseRow({
             title="View version history"
             style={{ padding: '3px 8px', fontSize: '0.8125rem', color: 'var(--gray-400)' }}>
             ⏱
+          </Button>
+          <Button variant="ghost" size="sm" onClick={onComments}
+            title="Comments & discussion"
+            style={{ padding: '3px 8px', fontSize: '0.8125rem', color: 'var(--gray-400)' }}>
+            💬
           </Button>
           {canEdit && (
             <>
