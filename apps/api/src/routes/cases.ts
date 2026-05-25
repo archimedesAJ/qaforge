@@ -206,7 +206,7 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
       const type         = VALID_TYPES.has(row['type'] ?? '')     ? row['type']     : 'manual';
       const priority     = VALID_PRIOS.has(row['priority'] ?? '') ? row['priority'] : 'p2';
       const tags         = row['tags']  ? row['tags'].split(',').map((t: string) => t.trim()).filter(Boolean) : [];
-      const preconditions = row['preconditions']?.trim() || undefined;
+      const preconditions = (row['preconditions'] ?? row['precondition'])?.trim() || undefined;
       let suiteId: string | undefined;
       if (row['suite']) {
         const suiteName = row['suite'].trim();
