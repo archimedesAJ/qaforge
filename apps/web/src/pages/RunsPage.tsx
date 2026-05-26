@@ -57,6 +57,7 @@ export function RunsPage() {
   const [pickerSuiteId, setPickerSuiteId] = useState<string | null>(null);
   const [caseSearch, setCaseSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [showSetPicker, setShowSetPicker] = useState(false);
 
   const { isEditor, canExecute } = useProjectRole(projectId);
 
@@ -72,6 +73,13 @@ export function RunsPage() {
     queryKey: ['plans', projectId],
     queryFn: () => api.get<{ plans: { id: string; name: string; milestone: string | null; status: string }[] }>(`projects/${projectId}/plans`),
     enabled: !!projectId && view === 'create',
+  });
+
+  // Test sets for the "load from set" shortcut
+  const { data: setsData } = useQuery({
+    queryKey: ['sets', projectId],
+    queryFn: () => api.get<{ sets: { id: string; name: string; description: string | null; caseCount: number }[] }>(`projects/${projectId}/sets`),
+    enabled: !!projectId && view === 'select-cases',
   });
 
   // Cases for selection (shown in select-cases view)
@@ -273,16 +281,37 @@ export function RunsPage() {
           height: 'calc(100vh - var(--topbar-height) - 56px)',
         }}>
           {/* Left — suite sidebar */}
+          {/* Left — suite sidebar */}
           <div style={{
             background: 'var(--gray-50)', border: '1px solid var(--border-color)',
             borderRadius: 'var(--border-radius-lg)', overflowY: 'auto', padding: '10px 8px',
+            display: 'flex', flexDirection: 'column', gap: 0,
           }}>
             <div style={{
               fontSize: '0.6875rem', fontWeight: 600, color: 'var(--gray-400)',
-              textTransform: 'uppercase', letterSpacing: '0.07em', padding: '4px 8px 8px',
+              textTransform: 'uppercase', letterSpacing: '0.07em', padding: '4px 8px 6px',
             }}>
-              Filter by suite
+              Suites
             </div>
+            {/* "Select all in suite" shortcut */}
+            {pickerSuiteId && (
+              <button
+                onClick={() => {
+                  setSelectedCaseIds(prev => {
+                    const next = new Set(prev);
+                    filteredCases.forEach(tc => next.add(tc.id));
+                    return next;
+                  });
+                }}
+                style={{
+                  margin: '0 4px 6px', padding: '5px 8px', fontSize: '0.75rem', fontWeight: 600,
+                  background: 'var(--color-primary-light)', color: 'var(--color-primary)',
+                  border: '1px solid #bfdbfe', borderRadius: 5, cursor: 'pointer', textAlign: 'left',
+                }}
+              >
+                + Select all in suite
+              </button>
+            )}
             <SuiteTree
               projectId={projectId!}
               selectedId={pickerSuiteId}
@@ -308,6 +337,11 @@ export function RunsPage() {
                   background: 'var(--surface-base)', color: 'var(--gray-900)',
                 }}
               />
+              {(setsData?.sets ?? []).length > 0 && (
+                <Button variant="secondary" size="sm" onClick={() => setShowSetPicker(true)}>
+                  ◧ Load from set
+                </Button>
+              )}
               <Button
                 variant="ghost" size="sm"
                 onClick={() => {
@@ -408,6 +442,50 @@ export function RunsPage() {
             </div>
           </div>
         </div>
+
+        {/* Load from set modal */}
+        <Modal
+          open={showSetPicker}
+          onClose={() => setShowSetPicker(false)}
+          title="Load cases from a test set"
+          footer={<Button variant="secondary" onClick={() => setShowSetPicker(false)}>Close</Button>}
+        >
+          {(setsData?.sets ?? []).length === 0 && (
+            <p style={{ color: 'var(--gray-500)', fontSize: '0.875rem', textAlign: 'center', padding: '16px 0' }}>
+              No test sets yet. Create one in Test cases → Test sets.
+            </p>
+          )}
+          {(setsData?.sets ?? []).map(set => (
+            <div key={set.id} style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '12px 0', borderBottom: '1px solid var(--border-color)',
+            }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--gray-900)' }}>{set.name}</div>
+                {set.description && (
+                  <div style={{ fontSize: '0.8125rem', color: 'var(--gray-500)', marginTop: 2 }}>{set.description}</div>
+                )}
+                <div style={{ fontSize: '0.8125rem', color: 'var(--gray-400)', marginTop: 2 }}>
+                  {set.caseCount} {set.caseCount === 1 ? 'case' : 'cases'}
+                </div>
+              </div>
+              <Button
+                variant="primary" size="sm"
+                onClick={async () => {
+                  const detail = await api.get<{ cases: { id: string }[] }>(`projects/${projectId}/sets/${set.id}`);
+                  setSelectedCaseIds(prev => {
+                    const next = new Set(prev);
+                    detail.cases.forEach(c => next.add(c.id));
+                    return next;
+                  });
+                  setShowSetPicker(false);
+                }}
+              >
+                Load
+              </Button>
+            </div>
+          ))}
+        </Modal>
       </AppLayout>
     );
   }
