@@ -26,6 +26,7 @@ model User {
   sentInvites    UserInvite[]    @relation("InviteSender")
   comments       CaseComment[]   @relation("CommentAuthor")
   caseLinks      CaseLink[]      @relation("LinkAuthor")
+  plansCreated   TestPlan[]      @relation("PlanAuthor")
 }
 
 model Project {
@@ -41,6 +42,7 @@ model Project {
   suites    TestSuite[]
   cases     TestCase[]
   runs      TestRun[]
+  plans     TestPlan[]
   invites   UserInvite[]
 }
 
@@ -154,9 +156,28 @@ model CaseComment {
 // Runs & results
 // ─────────────────────────────────────────────────────────────
 
+model TestPlan {
+  id          String    @id @default(uuid())
+  projectId   String
+  name        String
+  milestone   String?
+  description String?
+  status      String    @default("active") // active | archived
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy   User      @relation("PlanAuthor", fields: [createdById], references: [id])
+  runs        TestRun[]
+
+  @@index([projectId])
+}
+
 model TestRun {
   id          String    @id @default(uuid())
   projectId   String
+  planId      String?
   name        String
   env         String
   source      String    // manual | ci_github | ci_gitlab | api
@@ -166,6 +187,7 @@ model TestRun {
   endedAt     DateTime?
 
   project  Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  plan     TestPlan?            @relation(fields: [planId], references: [id])
   results  RunResult[]
   session  ExploratorySession?
   runCases RunCase[]

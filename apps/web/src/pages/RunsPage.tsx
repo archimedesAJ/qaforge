@@ -48,6 +48,7 @@ export function RunsPage() {
   // Create run form state
   const [runName, setRunName] = useState('');
   const [runEnv, setRunEnv] = useState('staging');
+  const [runPlanId, setRunPlanId] = useState('');
   const [createError, setCreateError] = useState('');
 
   // Case picker / execute state
@@ -65,6 +66,12 @@ export function RunsPage() {
     queryKey: ['runs', projectId],
     queryFn: () => api.get<{ runs: TestRun[] }>(`projects/${projectId}/runs`),
     enabled: !!projectId,
+  });
+
+  const { data: plansData } = useQuery({
+    queryKey: ['plans', projectId],
+    queryFn: () => api.get<{ plans: { id: string; name: string; milestone: string | null; status: string }[] }>(`projects/${projectId}/plans`),
+    enabled: !!projectId && view === 'create',
   });
 
   // Cases for selection (shown in select-cases view)
@@ -89,7 +96,11 @@ export function RunsPage() {
   const createRun = useMutation({
     mutationFn: (body: { name: string; env: string; source: string; caseIds: string[] }) =>
       api.post<TestRun>(`projects/${projectId}/runs`, body),
-    onSuccess: (run) => {
+    onSuccess: async (run) => {
+      if (runPlanId) {
+        await api.post(`projects/${projectId}/plans/${runPlanId}/runs/${run.id}`, {});
+        qc.invalidateQueries({ queryKey: ['plans', projectId] });
+      }
       qc.invalidateQueries({ queryKey: ['runs', projectId] });
       setPendingRun(run);
       setView('execute');
@@ -618,7 +629,7 @@ export function RunsPage() {
   return (
     <AppLayout
       title="Runs"
-      actions={canExecute && <Button variant="primary" size="sm" onClick={() => { setRunName(''); setCreateError(''); setSelectedCaseIds(new Set()); setView('create'); }}>+ New run</Button>}
+      actions={canExecute && <Button variant="primary" size="sm" onClick={() => { setRunName(''); setRunPlanId(''); setCreateError(''); setSelectedCaseIds(new Set()); setView('create'); }}>+ New run</Button>}
     >
       <div style={{ maxWidth: 900, margin: '0 auto' }}>
 
@@ -761,6 +772,17 @@ export function RunsPage() {
             { value: 'production', label: 'Production' },
             { value: 'local', label: 'Local' },
             { value: 'dev', label: 'Dev' },
+          ]}
+        />
+        <Select
+          label="Add to plan (optional)"
+          value={runPlanId}
+          onChange={e => setRunPlanId(e.target.value)}
+          options={[
+            { value: '', label: '— None —' },
+            ...(plansData?.plans ?? [])
+              .filter(p => p.status === 'active')
+              .map(p => ({ value: p.id, label: p.milestone ? `${p.name} (${p.milestone})` : p.name })),
           ]}
         />
       </Modal>

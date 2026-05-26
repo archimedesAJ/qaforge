@@ -49,6 +49,7 @@ export function AppLayout({ children, title, actions }: AppLayoutProps) {
     { to: `/projects/${projectId}`,          label: 'Dashboard',   icon: '▦' },
     { to: `/projects/${projectId}/cases`,    label: 'Test cases',  icon: '✓' },
     { to: `/projects/${projectId}/runs`,     label: 'Runs',        icon: '▶' },
+    { to: `/projects/${projectId}/plans`,    label: 'Test plans',  icon: '◳' },
     { to: `/projects/${projectId}/insights`, label: 'Insights',    icon: '◈' },
     { to: `/projects/${projectId}/settings`, label: 'Settings',    icon: '⚙' },
   ] : [];
