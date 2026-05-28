@@ -71,10 +71,42 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
     const { status } = req.body as { status: string };
     const valid = ['not_run', 'pass', 'fail', 'blocked', 'skipped'];
     if (!valid.includes(status)) return reply.code(400).send({ error: 'Invalid status' });
+
     const updated = await prisma.runCase.update({
       where: { runId_testCaseId: { runId, testCaseId: caseId } },
       data: { status },
     });
+
+    // Keep RunResult in sync so results viewer and aggregation reflect quick-marks.
+    // If a full-runner result already exists, update its status. Otherwise create
+    // a minimal entry (no steps/duration — this was a quick-mark, not a full run).
+    if (status !== 'not_run') {
+      const testCase = await prisma.testCase.findUnique({
+        where: { id: caseId },
+        select: { version: true },
+      });
+      const existing = await prisma.runResult.findFirst({
+        where: { runId, testCaseId: caseId },
+        orderBy: { executedAt: 'desc' },
+        select: { id: true },
+      });
+      if (existing) {
+        await prisma.runResult.update({
+          where: { id: existing.id },
+          data: { status, executedAt: new Date() },
+        });
+      } else {
+        await prisma.runResult.create({
+          data: {
+            runId,
+            testCaseId: caseId,
+            testCaseVersion: testCase?.version ?? 1,
+            status,
+          },
+        });
+      }
+    }
+
     return updated;
   });
 
