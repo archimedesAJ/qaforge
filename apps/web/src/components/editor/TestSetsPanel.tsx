@@ -84,8 +84,9 @@ export function TestSetsPanel({ projectId, canEdit }: Props) {
   const { data: pickerData, isLoading: loadingPicker } = useQuery({
     queryKey: ['cases', projectId, pickerSuite, 'set-picker'],
     queryFn: () => {
-      const qs = pickerSuite ? `?suiteId=${encodeURIComponent(pickerSuite)}` : '';
-      return api.get<{ data: PickerCase[] }>(`projects/${projectId}/cases${qs}`);
+      const params = new URLSearchParams({ limit: '500' });
+      if (pickerSuite) params.set('suiteId', pickerSuite);
+      return api.get<{ data: PickerCase[] }>(`projects/${projectId}/cases?${params}`);
     },
     enabled: showPicker,
   });

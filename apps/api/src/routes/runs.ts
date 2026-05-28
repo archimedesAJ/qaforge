@@ -157,18 +157,20 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
     const run = await prisma.testRun.findUnique({ where: { id: runId } });
     if (!run) return reply.code(404).send({ error: 'Run not found' });
     if (run.status === 'closed') return reply.code(409).send({ error: 'Run already closed' });
-    const results = await prisma.runResult.groupBy({
+    // Use RunCase statuses — they reflect quick-mark AND full-runner outcomes
+    const runCaseGroups = await prisma.runCase.groupBy({
       by: ['status'], where: { runId }, _count: { status: true },
     });
-    const counts = { pass: 0, fail: 0, blocked: 0, skipped: 0, not_applicable: 0 };
-    results.forEach((r: { status: string; _count: { status: number } }) => {
-      counts[r.status as keyof typeof counts] = r._count.status;
+    const counts = { pass: 0, fail: 0, blocked: 0, skipped: 0, not_run: 0 };
+    runCaseGroups.forEach((r: { status: string; _count: { status: number } }) => {
+      if (r.status in counts) counts[r.status as keyof typeof counts] = r._count.status;
     });
-    const total = Object.values(counts).reduce((a, b) => a + b, 0);
-    const passRate = total > 0 ? Math.round((counts.pass / total) * 100) : 0;
+    const decided = counts.pass + counts.fail + counts.blocked + counts.skipped;
+    const total   = decided + counts.not_run;
+    const passRate = decided > 0 ? Math.round((counts.pass / decided) * 100) : 0;
     await prisma.testRun.update({ where: { id: runId }, data: { status: 'closed', endedAt: new Date() } });
     aggregateOnRunClose(runId, projectId).catch(() => {});
-    return { status: 'closed', summary: { ...counts, total, passRate } };
+    return { status: 'closed', summary: { ...counts, total, decided, passRate } };
   });
 
   // POST /runs/:runId/results — submit one or many results (append-only)
@@ -412,16 +414,19 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
     if (!run) return reply.code(404).send({ error: 'Run not found' });
     if (run.status === 'closed') return reply.code(409).send({ error: 'Run already closed' });
 
-    const results = await prisma.runResult.groupBy({
+    const runCaseGroups = await prisma.runCase.groupBy({
       by: ['status'],
       where: { runId },
       _count: { status: true },
     });
 
-    const counts = { pass: 0, fail: 0, blocked: 0, skipped: 0, not_applicable: 0 };
-    results.forEach((r: { status: string; _count: { status: number } }) => { counts[r.status as keyof typeof counts] = r._count.status; });
-    const total = Object.values(counts).reduce((a, b) => a + b, 0);
-    const passRate = total > 0 ? Math.round((counts.pass / total) * 100) : 0;
+    const counts = { pass: 0, fail: 0, blocked: 0, skipped: 0, not_run: 0 };
+    runCaseGroups.forEach((r: { status: string; _count: { status: number } }) => {
+      if (r.status in counts) counts[r.status as keyof typeof counts] = r._count.status;
+    });
+    const decided  = counts.pass + counts.fail + counts.blocked + counts.skipped;
+    const total    = decided + counts.not_run;
+    const passRate = decided > 0 ? Math.round((counts.pass / decided) * 100) : 0;
 
     await prisma.testRun.update({
       where: { id: runId },
@@ -430,7 +435,7 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
 
     return {
       status: 'closed',
-      summary: { ...counts, total, passRate },
+      summary: { ...counts, total, decided, passRate },
     };
   });
 };

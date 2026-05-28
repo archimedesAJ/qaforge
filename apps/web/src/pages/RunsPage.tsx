@@ -82,12 +82,13 @@ export function RunsPage() {
     enabled: !!projectId && view === 'select-cases',
   });
 
-  // Cases for selection (shown in select-cases view)
+  // Cases for selection (shown in select-cases view) — no pagination cap
   const { data: allCasesData, isLoading: loadingCases } = useQuery({
     queryKey: ['cases', projectId, pickerSuiteId, 'selector'],
     queryFn: () => {
-      const qs = pickerSuiteId ? `?suiteId=${encodeURIComponent(pickerSuiteId)}` : '';
-      return api.get<{ data: TestCase[] }>(`projects/${projectId}/cases${qs}`);
+      const params = new URLSearchParams({ limit: '500' });
+      if (pickerSuiteId) params.set('suiteId', pickerSuiteId);
+      return api.get<{ data: TestCase[] }>(`projects/${projectId}/cases?${params}`);
     },
     enabled: !!projectId && view === 'select-cases',
   });
