@@ -96,7 +96,7 @@ export function InsightsPage() {
             <StatCard
               label="Total cases"
               value={total}
-              sub={`${total - stale} run recently`}
+              sub={`${total - stale} cases with recent results`}
             />
           </div>
 
