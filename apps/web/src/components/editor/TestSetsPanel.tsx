@@ -286,16 +286,42 @@ export function TestSetsPanel({ projectId, canEdit }: Props) {
 
             {/* Case list */}
             <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-              <input
-                value={pickerSearch}
-                onChange={e => setPickerSearch(e.target.value)}
-                placeholder="Search cases…"
-                style={{
-                  padding: '6px 10px', border: '1px solid var(--border-color)',
-                  borderRadius: 6, fontSize: '0.875rem', outline: 'none',
-                  background: 'var(--surface-base)', color: 'var(--gray-900)', marginBottom: 8, flexShrink: 0,
-                }}
-              />
+              <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexShrink: 0 }}>
+                <input
+                  value={pickerSearch}
+                  onChange={e => setPickerSearch(e.target.value)}
+                  placeholder="Search cases…"
+                  style={{
+                    flex: 1, padding: '6px 10px', border: '1px solid var(--border-color)',
+                    borderRadius: 6, fontSize: '0.875rem', outline: 'none',
+                    background: 'var(--surface-base)', color: 'var(--gray-900)',
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    const allSelected = pickerCases.length > 0 && pickerCases.every(tc => pendingIds.has(tc.id));
+                    setPendingIds(prev => {
+                      const next = new Set(prev);
+                      if (allSelected) {
+                        pickerCases.forEach(tc => next.delete(tc.id));
+                      } else {
+                        pickerCases.forEach(tc => next.add(tc.id));
+                      }
+                      return next;
+                    });
+                  }}
+                  style={{
+                    padding: '6px 10px', border: '1px solid var(--border-color)',
+                    borderRadius: 6, fontSize: '0.8125rem', cursor: 'pointer',
+                    background: 'var(--surface-base)', color: 'var(--gray-600)',
+                    whiteSpace: 'nowrap', fontWeight: 500,
+                  }}
+                >
+                  {pickerCases.length > 0 && pickerCases.every(tc => pendingIds.has(tc.id))
+                    ? 'Deselect all'
+                    : 'Select all'}
+                </button>
+              </div>
               <div style={{ flex: 1, overflowY: 'auto' }}>
                 {loadingPicker && <Spinner />}
                 {!loadingPicker && pickerCases.length === 0 && (
