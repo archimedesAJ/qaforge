@@ -686,11 +686,12 @@ export function RunsPage() {
                       {/* Full runner button */}
                       {canExecute && canRun && (
                         <Button
-                          variant="primary" size="sm"
+                          variant={rc.status === 'not_run' ? 'primary' : 'secondary'}
+                          size="sm"
                           onClick={() => launchCase(rc.testCase)}
                           style={{ flexShrink: 0, fontSize: '0.8125rem' }}
                         >
-                          ▶ Run
+                          {rc.status === 'not_run' ? '▶ Run' : '↺ Re-run'}
                         </Button>
                       )}
                     </div>
