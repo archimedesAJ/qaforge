@@ -166,3 +166,74 @@ export async function sendInviteEmail(opts: {
     console.log(`\n[invite] Azure AD not configured — share this link with ${opts.to}:\n${link}\n`);
   }
 }
+
+export async function sendProjectAddedEmail(opts: {
+  to: string;
+  inviterName: string;
+  projectName: string;
+  role: string;
+}): Promise<void> {
+  const loginLink = `${WEB_URL}/login`;
+  const roleLabel = opts.role.charAt(0).toUpperCase() + opts.role.slice(1);
+  const subject   = `You've been added to ${opts.projectName} on QAForge`;
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="560" cellpadding="0" cellspacing="0" border="0"
+               style="background:#ffffff;border-radius:8px;padding:40px;max-width:560px;">
+          <tr>
+            <td style="font-size:22px;font-weight:bold;color:#111827;padding-bottom:16px;">
+              You've been added to a project
+            </td>
+          </tr>
+          <tr>
+            <td style="font-size:15px;color:#374151;line-height:1.6;padding-bottom:24px;">
+              <strong>${opts.inviterName}</strong> has added you to
+              <strong>${opts.projectName}</strong> on QAForge as a
+              <strong>${roleLabel}</strong>.
+            </td>
+          </tr>
+          <tr>
+            <td style="font-size:15px;color:#374151;padding-bottom:32px;">
+              Log in to your account to access the project.
+            </td>
+          </tr>
+          <tr>
+            <td align="left" style="padding-bottom:32px;">
+              <table cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td align="center" bgcolor="#2563eb"
+                      style="border-radius:6px;mso-padding-alt:0;">
+                    <a href="${loginLink}"
+                       style="display:inline-block;padding:12px 28px;color:#ffffff;font-size:15px;
+                              font-weight:bold;text-decoration:none;border-radius:6px;">
+                      Go to QAForge
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="font-size:12px;color:#9ca3af;padding-top:8px;">
+              If you weren't expecting this, you can ignore this email.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  if (isConfigured) {
+    await sendViaMsGraph({ to: opts.to, subject, html });
+  } else {
+    console.log(`\n[project-added] Azure AD not configured — ${opts.to} was added to ${opts.projectName}\n`);
+  }
+}

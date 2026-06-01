@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
-import { sendInviteEmail } from '../services/email.js';
+import { sendInviteEmail, sendProjectAddedEmail } from '../services/email.js';
 
 const CreateProjectSchema = z.object({
   name: z.string().min(1).max(100),
@@ -91,7 +91,7 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
 
     const inviter = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
 
-    // If user already exists and is activated, add them directly
+    // If user already exists and is activated, add them directly and notify by email
     const existingUser = await prisma.user.findUnique({ where: { email: body.email } });
     if (existingUser?.activated) {
       await prisma.projectMember.upsert({
@@ -99,6 +99,12 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         update: { role: body.role },
         create: { projectId, userId: existingUser.id, role: body.role },
       });
+      sendProjectAddedEmail({
+        to:          body.email,
+        inviterName: inviter?.name ?? 'A team member',
+        projectName: project.name,
+        role:        body.role,
+      }).catch(() => {});
       return reply.code(201).send({ status: 'added', email: body.email });
     }
 
