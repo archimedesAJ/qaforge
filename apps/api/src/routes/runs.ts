@@ -148,7 +148,10 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
     const results = await prisma.runResult.findMany({
       where: { runId },
       orderBy: { executedAt: 'asc' },
-      include: { testCase: { select: { title: true, type: true } } },
+      include: {
+        testCase: { select: { title: true, type: true } },
+        defect: true,
+      },
     });
     return { results };
   });

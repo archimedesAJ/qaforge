@@ -1,8 +1,18 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Button, Spinner, EmptyState, StatCard, Alert } from '../shared/ui';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Button, Modal, Input, Select, Spinner, EmptyState, StatCard, Alert } from '../shared/ui';
 import { api } from '../../lib/api';
 import { exportResultsCsv, exportResultsPdf } from '../../lib/export';
+
+interface Defect {
+  id: string;
+  title: string | null;
+  tracker: string;
+  externalRef: string | null;
+  status: string;
+  notes: string | null;
+  createdAt: string;
+}
 
 interface RunResult {
   id: number;
@@ -16,7 +26,23 @@ interface RunResult {
   attachments?: Array<{ type: string; url: string }>;
   executedAt: string;
   testCase?: { title: string; type: string; priority?: string };
+  defect?: Defect | null;
 }
+
+const TRACKER_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
+  jira:     { label: 'Jira',     color: '#0052CC', bg: '#E6F0FF' },
+  github:   { label: 'GitHub',   color: '#24292F', bg: '#F0F0F0' },
+  linear:   { label: 'Linear',   color: '#5E6AD2', bg: '#EEEFFE' },
+  internal: { label: 'Internal', color: '#6B7280', bg: '#F3F4F6' },
+};
+
+const STATUS_CONFIG_DEFECT: Record<string, { label: string; color: string; bg: string }> = {
+  open:        { label: 'Open',        color: '#DC2626', bg: '#FEE2E2' },
+  in_progress: { label: 'In progress', color: '#D97706', bg: '#FEF3C7' },
+  resolved:    { label: 'Resolved',    color: '#16A34A', bg: '#DCFCE7' },
+  closed:      { label: 'Closed',      color: '#6B7280', bg: '#F3F4F6' },
+  wont_fix:    { label: "Won't fix",   color: '#9CA3AF', bg: '#F9FAFB' },
+};
 
 interface RunDetail {
   name: string;
@@ -43,10 +69,21 @@ const STATUS_CONFIG: Record<string, { color: string; bg: string; border: string;
 };
 
 export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoResultsViewerProps) {
+  const qc = useQueryClient();
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [exporting, setExporting] = useState(false);
+
+  // Defect filing state
+  const [filingFor, setFilingFor] = useState<RunResult | null>(null);
+  const [editingDefect, setEditingDefect] = useState<{ defect: Defect; resultId: number } | null>(null);
+  const [defectTitle, setDefectTitle]     = useState('');
+  const [defectTracker, setDefectTracker] = useState('jira');
+  const [defectStatus, setDefectStatus]   = useState('open');
+  const [defectRef, setDefectRef]         = useState('');
+  const [defectNotes, setDefectNotes]     = useState('');
+  const [defectError, setDefectError]     = useState('');
 
   const { data: runDetail } = useQuery({
     queryKey: ['run', runId],
@@ -62,6 +99,33 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
   });
 
   const results = data?.results ?? [];
+
+  // ── Defect mutations ─────────────────────────────────────────
+  const fileDefect = useMutation({
+    mutationFn: (body: { title: string; tracker: string; externalRef?: string; notes?: string }) =>
+      api.post<Defect>(`projects/${projectId}/results/${filingFor!.id}/defect`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['run-results', runId] });
+      setFilingFor(null);
+      setDefectTitle(''); setDefectTracker('jira'); setDefectRef(''); setDefectNotes(''); setDefectError('');
+    },
+    onError: (err: Error) => setDefectError(err.message),
+  });
+
+  const updateDefect = useMutation({
+    mutationFn: (body: { status?: string; externalRef?: string; notes?: string }) =>
+      api.patch<Defect>(`projects/${projectId}/defects/${editingDefect!.defect.id}`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['run-results', runId] });
+      setEditingDefect(null);
+    },
+  });
+
+  const removeDefect = useMutation({
+    mutationFn: (defectId: string) =>
+      api.delete(`projects/${projectId}/defects/${defectId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['run-results', runId] }),
+  });
 
   const counts = results.reduce(
     (acc, r) => { acc[r.status] = (acc[r.status] ?? 0) + 1; return acc; },
@@ -366,6 +430,84 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
                   }}>▾</div>
                 </div>
 
+                {/* Defect row — visible on failed/blocked results */}
+                {(result.status === 'fail' || result.status === 'blocked') && (
+                  <div style={{
+                    padding: '6px 16px 8px 56px',
+                    borderTop: '1px solid var(--border-color)',
+                    display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+                    background: result.defect ? '#FFFBEB' : 'transparent',
+                  }}>
+                    {result.defect ? (
+                      <>
+                        {/* Tracker badge */}
+                        {(() => {
+                          const tc = TRACKER_CONFIG[result.defect.tracker] ?? TRACKER_CONFIG.internal;
+                          return (
+                            <span style={{
+                              padding: '2px 8px', borderRadius: 4, fontSize: '0.75rem', fontWeight: 600,
+                              color: tc.color, background: tc.bg,
+                            }}>
+                              {tc.label}
+                            </span>
+                          );
+                        })()}
+                        {/* Title / external ref */}
+                        {result.defect.externalRef ? (
+                          <a href={result.defect.externalRef} target="_blank" rel="noopener noreferrer"
+                            style={{ fontSize: '0.8125rem', color: 'var(--color-primary)', fontWeight: 500, textDecoration: 'none' }}
+                            onClick={e => e.stopPropagation()}
+                          >
+                            {result.defect.title || result.defect.externalRef} ↗
+                          </a>
+                        ) : (
+                          <span style={{ fontSize: '0.8125rem', color: 'var(--gray-700)', fontWeight: 500 }}>
+                            {result.defect.title}
+                          </span>
+                        )}
+                        {/* Status chip */}
+                        {(() => {
+                          const sc = STATUS_CONFIG_DEFECT[result.defect!.status] ?? STATUS_CONFIG_DEFECT.open;
+                          return (
+                            <span style={{
+                              padding: '2px 8px', borderRadius: 20, fontSize: '0.75rem', fontWeight: 600,
+                              color: sc.color, background: sc.bg,
+                            }}>
+                              {sc.label}
+                            </span>
+                          );
+                        })()}
+                        {/* Actions */}
+                        <button onClick={e => {
+                          e.stopPropagation();
+                          const d = result.defect!;
+                          setEditingDefect({ defect: d, resultId: result.id });
+                          setDefectStatus(d.status);
+                          setDefectRef(d.externalRef ?? '');
+                          setDefectNotes(d.notes ?? '');
+                        }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8125rem', color: 'var(--gray-500)', padding: '2px 4px' }}>
+                          Edit
+                        </button>
+                        <button onClick={e => { e.stopPropagation(); removeDefect.mutate(result.defect!.id); }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8125rem', color: '#DC2626', padding: '2px 4px' }}>
+                          Remove
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={e => { e.stopPropagation(); setFilingFor(result); setDefectTitle(result.testCase?.title ?? ''); setDefectTracker('jira'); setDefectRef(''); setDefectNotes(''); setDefectError(''); }}
+                        style={{
+                          background: 'none', border: '1px dashed var(--border-color)', borderRadius: 5,
+                          color: 'var(--gray-400)', fontSize: '0.8125rem', padding: '3px 10px', cursor: 'pointer',
+                        }}
+                      >
+                        + File defect
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 {isOpen && hasDetail && (
                   <div style={{
                     padding: '14px 16px 16px 56px',
@@ -474,6 +616,116 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
           })}
         </div>
       )}
+      {/* ── File defect modal ── */}
+      <Modal
+        open={!!filingFor}
+        onClose={() => setFilingFor(null)}
+        title="File defect"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setFilingFor(null)}>Cancel</Button>
+            <Button
+              variant="primary"
+              loading={fileDefect.isPending}
+              onClick={() => {
+                setDefectError('');
+                if (!defectTitle.trim()) { setDefectError('Title is required'); return; }
+                fileDefect.mutate({
+                  title:       defectTitle.trim(),
+                  tracker:     defectTracker,
+                  externalRef: defectRef.trim() || undefined,
+                  notes:       defectNotes.trim() || undefined,
+                });
+              }}
+            >
+              File defect
+            </Button>
+          </>
+        }
+      >
+        {defectError && <div style={{ marginBottom: 12 }}><Alert type="error">{defectError}</Alert></div>}
+        <Input
+          label="Title"
+          value={defectTitle}
+          onChange={e => setDefectTitle(e.target.value)}
+          placeholder="Brief description of the defect"
+          autoFocus
+        />
+        <Select
+          label="Tracker"
+          value={defectTracker}
+          onChange={e => setDefectTracker(e.target.value)}
+          options={[
+            { value: 'jira',     label: 'Jira' },
+            { value: 'github',   label: 'GitHub' },
+            { value: 'linear',   label: 'Linear' },
+            { value: 'internal', label: 'Internal (no external tracker)' },
+          ]}
+        />
+        <Input
+          label="Ticket URL (optional)"
+          value={defectRef}
+          onChange={e => setDefectRef(e.target.value)}
+          placeholder="https://yourcompany.atlassian.net/browse/PROJ-123"
+        />
+        <Input
+          label="Notes (optional)"
+          value={defectNotes}
+          onChange={e => setDefectNotes(e.target.value)}
+          placeholder="Steps to reproduce, affected env, etc."
+        />
+      </Modal>
+
+      {/* ── Edit defect modal ── */}
+      <Modal
+        open={!!editingDefect}
+        onClose={() => setEditingDefect(null)}
+        title="Update defect"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setEditingDefect(null)}>Cancel</Button>
+            <Button
+              variant="primary"
+              loading={updateDefect.isPending}
+              onClick={() => {
+                if (!editingDefect) return;
+                updateDefect.mutate({
+                  status:      defectStatus,
+                  externalRef: defectRef.trim() || undefined,
+                  notes:       defectNotes.trim() || undefined,
+                });
+              }}
+            >
+              Save
+            </Button>
+          </>
+        }
+      >
+        <Select
+          label="Status"
+          value={defectStatus}
+          onChange={e => setDefectStatus(e.target.value)}
+          options={[
+            { value: 'open',        label: 'Open' },
+            { value: 'in_progress', label: 'In progress' },
+            { value: 'resolved',    label: 'Resolved' },
+            { value: 'closed',      label: 'Closed' },
+            { value: 'wont_fix',    label: "Won't fix" },
+          ]}
+        />
+        <Input
+          label="Ticket URL (optional)"
+          value={defectRef}
+          onChange={e => setDefectRef(e.target.value)}
+          placeholder="https://yourcompany.atlassian.net/browse/PROJ-123"
+        />
+        <Input
+          label="Notes (optional)"
+          value={defectNotes}
+          onChange={e => setDefectNotes(e.target.value)}
+          placeholder="Any additional context"
+        />
+      </Modal>
     </div>
   );
 }

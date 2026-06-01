@@ -264,10 +264,13 @@ model RunResult {
 model Defect {
   id          String    @id @default(uuid())
   runResultId Int       @unique
-  externalRef String?
+  title       String?
   tracker     String    // jira | github | linear | internal
-  status      String    @default("open")
+  externalRef String?   // full URL to the ticket
+  status      String    @default("open") // open | in_progress | resolved | closed | wont_fix
+  notes       String?
   createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   runResult RunResult @relation(fields: [runResultId], references: [id])
 }
