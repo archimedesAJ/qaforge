@@ -91,13 +91,17 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
 
     const inviter = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
 
-    // If user already exists and is activated, add them directly and notify by email
+    // If user already exists and is activated, check they aren't already a member
     const existingUser = await prisma.user.findUnique({ where: { email: body.email } });
     if (existingUser?.activated) {
-      await prisma.projectMember.upsert({
+      const alreadyMember = await prisma.projectMember.findUnique({
         where: { projectId_userId: { projectId, userId: existingUser.id } },
-        update: { role: body.role },
-        create: { projectId, userId: existingUser.id, role: body.role },
+      });
+      if (alreadyMember) {
+        return reply.code(409).send({ error: 'User is already a member of this project' });
+      }
+      await prisma.projectMember.create({
+        data: { projectId, userId: existingUser.id, role: body.role },
       });
       sendProjectAddedEmail({
         to:          body.email,
