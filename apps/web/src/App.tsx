@@ -9,6 +9,7 @@ import { CasesPage } from './pages/CasesPage';
 import { RunsPage } from './pages/RunsPage';
 import { PlansPage } from './pages/PlansPage';
 import { DefectsPage } from './pages/DefectsPage';
+import { AdminUsersPage } from './pages/AdminUsersPage';
 import { InsightsPage } from './pages/InsightsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { AiPage } from './pages/AiPage';
@@ -30,6 +31,7 @@ export function App() {
       <Route path="/register"       element={<RegisterPage />} />
       <Route path="/accept-invite"  element={<AcceptInvitePage />} />
       <Route path="/"                                   element={<RequireAuth><ProjectsPage /></RequireAuth>} />
+      <Route path="/admin/users"                        element={<RequireAuth><AdminUsersPage /></RequireAuth>} />
       <Route path="/projects/:projectId"                element={<RequireAuth><DashboardPage /></RequireAuth>} />
       <Route path="/projects/:projectId/cases"          element={<RequireAuth><CasesPage /></RequireAuth>} />
       <Route path="/projects/:projectId/runs"           element={<RequireAuth><RunsPage /></RequireAuth>} />

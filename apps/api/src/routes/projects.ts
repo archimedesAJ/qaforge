@@ -225,13 +225,19 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
     return { userId, email: target.email, name: target.name, systemAdmin };
   });
 
-  // GET /sysadmin/users — list all users (sysadmin only)
+  // GET /sysadmin/users — list all users with their project memberships (sysadmin only)
   app.get('/sysadmin/users', async (req, reply) => {
     const caller = (req as unknown as { isSystemAdmin?: boolean });
     if (!caller.isSystemAdmin) return reply.code(403).send({ error: 'System admin access required' });
 
     const users = await prisma.user.findMany({
-      select: { id: true, email: true, name: true, activated: true, systemAdmin: true, createdAt: true },
+      select: {
+        id: true, email: true, name: true,
+        activated: true, systemAdmin: true, createdAt: true,
+        memberships: {
+          include: { project: { select: { id: true, name: true, slug: true } } },
+        },
+      },
       orderBy: { createdAt: 'asc' },
     });
     return { users };

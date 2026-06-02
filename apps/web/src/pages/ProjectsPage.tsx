@@ -45,9 +45,16 @@ export function ProjectsPage() {
               {isSystemAdmin ? 'Viewing all projects across the system' : 'All test projects you have access to'}
             </p>
           </div>
-          <Button variant="primary" onClick={() => setShowCreate(true)}>
-            + New project
-          </Button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {isSystemAdmin && (
+              <Button variant="secondary" onClick={() => navigate('/admin/users')}>
+                👥 Manage users
+              </Button>
+            )}
+            <Button variant="primary" onClick={() => setShowCreate(true)}>
+              + New project
+            </Button>
+          </div>
         </div>
 
         {isLoading && (
