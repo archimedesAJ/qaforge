@@ -18,14 +18,21 @@ const InviteSchema = z.object({
 export const projectsRoutes: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', authenticate);
 
-  // GET /projects — list projects the current user is a member of
+  // GET /projects — list projects; system admins see all
   app.get('/', async (req) => {
     const { userId } = req.user as { userId: string };
+    const isSystemAdmin = (req as unknown as { isSystemAdmin?: boolean }).isSystemAdmin;
+
+    if (isSystemAdmin) {
+      const projects = await prisma.project.findMany({ orderBy: { createdAt: 'desc' } });
+      return { projects, isSystemAdmin: true };
+    }
+
     const memberships = await prisma.projectMember.findMany({
       where: { userId },
       include: { project: true },
     });
-    return { projects: memberships.map((m: { project: unknown }) => m.project) };
+    return { projects: memberships.map((m: { project: unknown }) => m.project), isSystemAdmin: false };
   });
 
   // POST /projects — create a new project (any authenticated user)
@@ -197,5 +204,36 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
     const { projectId } = req.params as { projectId: string };
     await prisma.project.delete({ where: { id: projectId } });
     return reply.code(204).send();
+  });
+
+  // ── System-admin management ───────────────────────────────────────────────
+  // Only an existing system admin can promote or demote another user.
+
+  // PATCH /sysadmin/users/:userId — promote or demote a user
+  app.patch('/sysadmin/users/:userId', async (req, reply) => {
+    const caller = (req as unknown as { isSystemAdmin?: boolean });
+    if (!caller.isSystemAdmin) return reply.code(403).send({ error: 'System admin access required' });
+
+    const { userId } = req.params as { userId: string };
+    const { systemAdmin } = req.body as { systemAdmin: boolean };
+    if (typeof systemAdmin !== 'boolean') return reply.code(400).send({ error: 'systemAdmin must be a boolean' });
+
+    const target = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true, name: true } });
+    if (!target) return reply.code(404).send({ error: 'User not found' });
+
+    await prisma.user.update({ where: { id: userId }, data: { systemAdmin } });
+    return { userId, email: target.email, name: target.name, systemAdmin };
+  });
+
+  // GET /sysadmin/users — list all users (sysadmin only)
+  app.get('/sysadmin/users', async (req, reply) => {
+    const caller = (req as unknown as { isSystemAdmin?: boolean });
+    if (!caller.isSystemAdmin) return reply.code(403).send({ error: 'System admin access required' });
+
+    const users = await prisma.user.findMany({
+      select: { id: true, email: true, name: true, activated: true, systemAdmin: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    return { users };
   });
 };

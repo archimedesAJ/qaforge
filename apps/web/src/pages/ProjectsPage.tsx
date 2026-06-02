@@ -13,10 +13,11 @@ export function ProjectsPage() {
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => api.get<{ projects: Project[] }>('projects'),
+    queryFn: () => api.get<{ projects: Project[]; isSystemAdmin: boolean }>('projects'),
   });
 
-  const projects = data?.projects ?? [];
+  const projects     = data?.projects ?? [];
+  const isSystemAdmin = data?.isSystemAdmin ?? false;
 
   function handleProjectClick(project: Project) {
     navigate(`/projects/${project.id}`);
@@ -27,8 +28,22 @@ export function ProjectsPage() {
       <div style={{ maxWidth: 900, margin: '0 auto' }}>
         <div className="page-header">
           <div>
-            <h1 className="page-title">Projects</h1>
-            <p className="page-subtitle">All test projects you have access to</p>
+            <h1 className="page-title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              Projects
+              {isSystemAdmin && (
+                <span style={{
+                  background: '#FEF3C7', color: '#92400E',
+                  fontSize: '0.75rem', fontWeight: 700,
+                  padding: '2px 10px', borderRadius: 20,
+                  letterSpacing: '0.04em', textTransform: 'uppercase',
+                }}>
+                  System Admin
+                </span>
+              )}
+            </h1>
+            <p className="page-subtitle">
+              {isSystemAdmin ? 'Viewing all projects across the system' : 'All test projects you have access to'}
+            </p>
           </div>
           <Button variant="primary" onClick={() => setShowCreate(true)}>
             + New project
@@ -75,7 +90,11 @@ export function ProjectsPage() {
         open={showCreate}
         onClose={() => setShowCreate(false)}
         onCreated={(project) => {
-          qc.invalidateQueries({ queryKey: ['projects'] });
+          // Optimistically add the new project to the cache so it appears
+          // immediately if the user navigates back to this page.
+          qc.setQueryData<{ projects: Project[] }>(['projects'], old =>
+            old ? { projects: [...old.projects, project] } : { projects: [project] }
+          );
           setShowCreate(false);
           navigate(`/projects/${project.id}`);
         }}

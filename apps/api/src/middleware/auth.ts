@@ -42,12 +42,13 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
     return reply.code(401).send({ error: 'Invalid or expired token' });
   }
 
-  // Block unactivated accounts
+  // Block unactivated accounts; attach systemAdmin to req for downstream use
   const { userId } = req.user as { userId: string };
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { activated: true } });
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { activated: true, systemAdmin: true } });
   if (!user?.activated) {
     return reply.code(403).send({ error: 'Account not yet activated. Check your invite email.' });
   }
+  (req as FastifyRequest & { isSystemAdmin: boolean }).isSystemAdmin = user.systemAdmin ?? false;
 }
 
 /**
@@ -56,7 +57,7 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
  */
 export function requireRole(min: keyof typeof ROLE_RANK) {
   return async (req: FastifyRequest, reply: FastifyReply) => {
-    const extended = req as FastifyRequest & { isApiKey?: boolean; projectId?: string };
+    const extended = req as FastifyRequest & { isApiKey?: boolean; projectId?: string; isSystemAdmin?: boolean };
 
     // API key: grant editor-level access only
     if (extended.isApiKey) {
@@ -65,6 +66,9 @@ export function requireRole(min: keyof typeof ROLE_RANK) {
       }
       return;
     }
+
+    // System admins bypass all project-level role checks
+    if (extended.isSystemAdmin) return;
 
     const { userId } = req.user as { userId: string };
     const { projectId } = req.params as { projectId?: string };

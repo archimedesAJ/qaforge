@@ -17,6 +17,7 @@ model User {
   name          String
   passwordHash  String
   activated     Boolean         @default(false)
+  systemAdmin   Boolean         @default(false)
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
