@@ -5,6 +5,7 @@ interface AuthUser {
   id: string;
   email: string;
   name: string;
+  systemAdmin?: boolean;
 }
 
 interface AuthState {

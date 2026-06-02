@@ -43,7 +43,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     });
 
     const token = app.jwt.sign({ userId: user.id, email: user.email }, { expiresIn: '24h' });
-    return reply.code(201).send({ token, user: { id: user.id, email: user.email, name: user.name } });
+    return reply.code(201).send({ token, user: { id: user.id, email: user.email, name: user.name, systemAdmin: user.systemAdmin } });
   });
 
   // POST /auth/login
@@ -59,7 +59,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const token = app.jwt.sign({ userId: user.id, email: user.email }, { expiresIn: '24h' });
-    return { token, user: { id: user.id, email: user.email, name: user.name } };
+    return { token, user: { id: user.id, email: user.email, name: user.name, systemAdmin: user.systemAdmin } };
   });
 
   // POST /auth/accept-invite — set name + password from an invite token
@@ -89,7 +89,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     const jwtToken = app.jwt.sign({ userId: user.id, email: user.email }, { expiresIn: '24h' });
     return reply.code(200).send({
       token: jwtToken,
-      user:  { id: user.id, email: user.email, name: body.name },
+      user:  { id: user.id, email: user.email, name: body.name, systemAdmin: user.systemAdmin },
     });
   });
 

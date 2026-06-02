@@ -23,21 +23,25 @@ export function useProjectRole(projectId: string | undefined) {
     staleTime: 60_000,
   });
 
-  const role = data?.members.find(m => m.userId === user?.id)?.role
-    ?? projectRoles[projectId ?? '']
-    ?? null;
+  // System admins get full admin access on every project
+  const isSystemAdmin = user?.systemAdmin === true;
+
+  const role = isSystemAdmin
+    ? 'admin'
+    : (data?.members.find(m => m.userId === user?.id)?.role
+        ?? projectRoles[projectId ?? '']
+        ?? null);
 
   useEffect(() => {
-    if (role && projectId) setProjectRole(projectId, role);
-  }, [role, projectId, setProjectRole]);
+    if (role && projectId && !isSystemAdmin) setProjectRole(projectId, role);
+  }, [role, projectId, setProjectRole, isSystemAdmin]);
 
   return {
     role,
-    isAdmin:    !!role && ROLE_RANK[role] >= ROLE_RANK['admin'],
-    isManager:  !!role && ROLE_RANK[role] >= ROLE_RANK['manager'],
-    isEditor:   !!role && ROLE_RANK[role] >= ROLE_RANK['editor'],
-    isViewer:   !!role,
-    // Managers oversee runs but don't execute them — only editors and admins can run cases
-    canExecute: role === 'editor' || role === 'admin',
+    isAdmin:    isSystemAdmin || (!!role && ROLE_RANK[role] >= ROLE_RANK['admin']),
+    isManager:  isSystemAdmin || (!!role && ROLE_RANK[role] >= ROLE_RANK['manager']),
+    isEditor:   isSystemAdmin || (!!role && ROLE_RANK[role] >= ROLE_RANK['editor']),
+    isViewer:   isSystemAdmin || !!role,
+    canExecute: isSystemAdmin || role === 'editor' || role === 'admin',
   };
 }
