@@ -112,6 +112,14 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(201).send({ status: 'added', email: body.email });
     }
 
+    // Reject if a non-expired invite already exists for this email + project
+    const existingInvite = await prisma.userInvite.findFirst({
+      where: { email: body.email, projectId, expiresAt: { gt: new Date() } },
+    });
+    if (existingInvite) {
+      return reply.code(409).send({ error: 'A pending invite already exists for this email. Delete it first or wait for it to expire.' });
+    }
+
     // Create a placeholder user if they don't exist yet
     if (!existingUser) {
       const newUser = await prisma.user.create({
