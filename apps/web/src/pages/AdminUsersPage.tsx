@@ -169,14 +169,17 @@ export function AdminUsersPage() {
                   </div>
 
                   {/* Project count */}
-                  <div style={{ textAlign: 'center', minWidth: 52, flexShrink: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--gray-900)' }}>
-                      {user.memberships.length}
-                    </div>
-                    <div style={{ fontSize: '0.6875rem', color: 'var(--gray-400)', textTransform: 'uppercase' }}>
-                      {user.memberships.length === 1 ? 'project' : 'projects'}
-                    </div>
-                  </div>
+                  {(() => {
+                    const count = effectiveMemberships(user).length;
+                    return (
+                      <div style={{ textAlign: 'center', minWidth: 52, flexShrink: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--gray-900)' }}>{count}</div>
+                        <div style={{ fontSize: '0.6875rem', color: 'var(--gray-400)', textTransform: 'uppercase' }}>
+                          {count === 1 ? 'project' : 'projects'}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Joined date */}
                   <div style={{ fontSize: '0.8125rem', color: 'var(--gray-400)', whiteSpace: 'nowrap', flexShrink: 0 }}>
