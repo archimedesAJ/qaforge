@@ -512,6 +512,12 @@ export function RunsPage() {
             background: 'var(--surface-base)', border: '1px solid var(--border-color)',
             borderRadius: 'var(--border-radius-lg)', padding: '12px 18px',
           }}>
+            <Button
+              variant="ghost" size="sm"
+              onClick={() => { setView('list'); setPendingRun(null); }}
+            >
+              ← Back
+            </Button>
             <div style={{ flex: 1 }}>
               <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--gray-900)' }}>
                 {pendingRun.name}
