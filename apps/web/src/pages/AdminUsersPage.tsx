@@ -45,15 +45,31 @@ export function AdminUsersPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['sysadmin-users'] }),
   });
 
+  // Collect every project that exists across all users' memberships
+  const allProjectsMap = new Map<string, { id: string; name: string; slug: string }>();
+  (data?.users ?? []).forEach(u =>
+    u.memberships.forEach(m => allProjectsMap.set(m.project.id, m.project))
+  );
+  const allProjects = [...allProjectsMap.values()];
+  const totalProjects = allProjects.length;
+
   const users = (data?.users ?? []).filter(u =>
     !search ||
     u.name.toLowerCase().includes(search.toLowerCase()) ||
     u.email.toLowerCase().includes(search.toLowerCase())
   );
 
-  const totalProjects = new Set(
-    (data?.users ?? []).flatMap(u => u.memberships.map(m => m.project.id))
-  ).size;
+  // For a sysadmin, build their effective project list:
+  // projects they're a member of (with role) + projects they're not a member of (marked "system admin")
+  function effectiveMemberships(user: AdminUser): { role: string; project: { id: string; name: string; slug: string }; isSysAdminOnly: boolean }[] {
+    if (!user.systemAdmin) return user.memberships.map(m => ({ ...m, isSysAdminOnly: false }));
+    const memberIds = new Set(user.memberships.map(m => m.project.id));
+    const explicit = user.memberships.map(m => ({ ...m, isSysAdminOnly: false }));
+    const implicit = allProjects
+      .filter(p => !memberIds.has(p.id))
+      .map(p => ({ role: 'system admin', project: p, isSysAdminOnly: true }));
+    return [...explicit, ...implicit];
+  }
 
   return (
     <AppLayout title="All users">
@@ -181,42 +197,48 @@ export function AdminUsersPage() {
                 </div>
 
                 {/* Project memberships */}
-                {user.memberships.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, paddingLeft: 48 }}>
-                    {user.memberships.map(m => {
-                      const rc = ROLE_COLOR[m.role] ?? ROLE_COLOR.viewer;
-                      return (
-                        <button
-                          key={m.project.id}
-                          onClick={() => navigate(`/projects/${m.project.id}`)}
-                          title={`Open ${m.project.name}`}
-                          style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 6,
-                            padding: '3px 10px', borderRadius: 6,
-                            border: '1px solid var(--border-color)',
-                            background: 'var(--surface-base)',
-                            cursor: 'pointer', fontSize: '0.8125rem',
-                          }}
-                        >
-                          <span style={{ color: 'var(--gray-700)', fontWeight: 500 }}>{m.project.name}</span>
-                          <span style={{
-                            padding: '1px 6px', borderRadius: 4,
-                            fontSize: '0.6875rem', fontWeight: 600,
-                            color: rc.color, background: rc.bg,
-                          }}>
-                            {m.role}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {user.memberships.length === 0 && user.activated && (
-                  <div style={{ paddingLeft: 48, fontSize: '0.8125rem', color: 'var(--gray-400)' }}>
-                    Not a member of any project
-                  </div>
-                )}
+                {(() => {
+                  const effective = effectiveMemberships(user);
+                  if (effective.length === 0 && user.activated) {
+                    return (
+                      <div style={{ paddingLeft: 48, fontSize: '0.8125rem', color: 'var(--gray-400)' }}>
+                        Not a member of any project
+                      </div>
+                    );
+                  }
+                  return (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, paddingLeft: 48 }}>
+                      {effective.map(m => {
+                        const rc = m.isSysAdminOnly
+                          ? { color: '#92400E', bg: '#FEF3C7' }
+                          : (ROLE_COLOR[m.role] ?? ROLE_COLOR.viewer);
+                        return (
+                          <button
+                            key={m.project.id}
+                            onClick={() => navigate(`/projects/${m.project.id}`)}
+                            title={`Open ${m.project.name}`}
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 6,
+                              padding: '3px 10px', borderRadius: 6,
+                              border: `1px solid ${m.isSysAdminOnly ? '#FDE68A' : 'var(--border-color)'}`,
+                              background: m.isSysAdminOnly ? '#FFFBEB' : 'var(--surface-base)',
+                              cursor: 'pointer', fontSize: '0.8125rem',
+                            }}
+                          >
+                            <span style={{ color: 'var(--gray-700)', fontWeight: 500 }}>{m.project.name}</span>
+                            <span style={{
+                              padding: '1px 6px', borderRadius: 4,
+                              fontSize: '0.6875rem', fontWeight: 600,
+                              color: rc.color, background: rc.bg,
+                            }}>
+                              {m.isSysAdminOnly ? 'sys admin' : m.role}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}
