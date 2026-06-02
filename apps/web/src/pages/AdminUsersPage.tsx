@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { AppLayout } from '../components/shared/AppLayout';
 import { Button, Spinner, EmptyState, StatCard } from '../components/shared/ui';
 import { api } from '../lib/api';
@@ -30,19 +30,12 @@ const ROLE_COLOR: Record<string, { color: string; bg: string }> = {
 
 export function AdminUsersPage() {
   const navigate  = useNavigate();
-  const qc        = useQueryClient();
   const currentUser = useAuthStore(s => s.user);
   const [search, setSearch] = useState('');
 
   const { data, isLoading } = useQuery({
     queryKey: ['sysadmin-users'],
     queryFn: () => api.get<{ users: AdminUser[] }>('projects/sysadmin/users'),
-  });
-
-  const toggleSysAdmin = useMutation({
-    mutationFn: ({ userId, systemAdmin }: { userId: string; systemAdmin: boolean }) =>
-      api.patch(`projects/sysadmin/users/${userId}`, { systemAdmin }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['sysadmin-users'] }),
   });
 
   // Collect every project that exists across all users' memberships
@@ -186,17 +179,6 @@ export function AdminUsersPage() {
                     {new Date(user.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </div>
 
-                  {/* Promote / demote */}
-                  {!isSelf && (
-                    <Button
-                      variant="secondary" size="sm"
-                      style={user.systemAdmin ? { color: '#DC2626', borderColor: '#FCA5A5' } : {}}
-                      loading={toggleSysAdmin.isPending}
-                      onClick={() => toggleSysAdmin.mutate({ userId: user.id, systemAdmin: !user.systemAdmin })}
-                    >
-                      {user.systemAdmin ? 'Revoke admin' : 'Make admin'}
-                    </Button>
-                  )}
                 </div>
 
                 {/* Project memberships */}
