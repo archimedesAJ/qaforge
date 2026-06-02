@@ -276,7 +276,14 @@ export function RunsPage() {
     const allSelected = filteredCases.length > 0 && filteredCases.every(tc => selectedCaseIds.has(tc.id));
 
     return (
-      <AppLayout title={`New run: ${runName}`}>
+      <AppLayout
+        title={`New run: ${runName}`}
+        actions={
+          <Button variant="secondary" size="sm" onClick={() => { setView('list'); setSelectedCaseIds(new Set()); }}>
+            ✕ Cancel
+          </Button>
+        }
+      >
         <div style={{
           display: 'grid', gridTemplateColumns: '210px 1fr', gap: 16,
           height: 'calc(100vh - var(--topbar-height) - 56px)',
