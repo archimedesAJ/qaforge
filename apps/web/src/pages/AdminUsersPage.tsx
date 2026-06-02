@@ -174,11 +174,6 @@ export function AdminUsersPage() {
                     );
                   })()}
 
-                  {/* Joined date */}
-                  <div style={{ fontSize: '0.8125rem', color: 'var(--gray-400)', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                    {new Date(user.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                  </div>
-
                 </div>
 
                 {/* Project memberships */}
