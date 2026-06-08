@@ -23,9 +23,14 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
   });
 
   if (res.status === 401) {
-    localStorage.removeItem('qaforge_token');
-    window.location.href = '/login';
-    throw new ApiError(401, 'Session expired');
+    const onAuthPage = ['/login', '/register'].includes(window.location.pathname);
+    if (!onAuthPage) {
+      localStorage.removeItem('qaforge_token');
+      window.location.href = '/login';
+      throw new ApiError(401, 'Session expired. Please sign in again.');
+    }
+    // On the login page, fall through to normal error handling so the
+    // API's "Invalid credentials" message is shown rather than "Session expired"
   }
 
   if (!res.ok) {
