@@ -47,6 +47,7 @@ model Project {
   plans     TestPlan[]
   sets      TestSet[]
   invites   UserInvite[]
+  defects   Defect[]
 }
 
 model ProjectMember {
@@ -264,7 +265,8 @@ model RunResult {
 
 model Defect {
   id          String    @id @default(uuid())
-  runResultId Int       @unique
+  projectId   String
+  runResultId Int?      @unique
   title       String?
   tracker     String    // jira | github | linear | internal
   externalRef String?   // full URL to the ticket
@@ -273,7 +275,10 @@ model Defect {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  runResult RunResult @relation(fields: [runResultId], references: [id])
+  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  runResult RunResult? @relation(fields: [runResultId], references: [id])
+
+  @@index([projectId])
 }
 
 model ExploratorySession {

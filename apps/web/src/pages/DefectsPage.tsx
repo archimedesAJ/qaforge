@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '../components/shared/AppLayout';
-import { Select, EmptyState, Spinner, StatCard } from '../components/shared/ui';
+import { Button, Input, Modal, Alert, Select, EmptyState, Spinner, StatCard } from '../components/shared/ui';
 import { api } from '../lib/api';
+import { useProjectRole } from '../hooks/useProjectRole';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -22,7 +23,7 @@ interface Defect {
     executedAt: string;
     testCase: { id: string; title: string; type: string } | null;
     run: { id: string; name: string; env: string };
-  };
+  } | null;
 }
 
 // ── Config ───────────────────────────────────────────────────────────────────
@@ -42,13 +43,18 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }
   wont_fix:    { label: "Won't fix",   color: '#9CA3AF', bg: '#F9FAFB' },
 };
 
+const TRACKER_OPTIONS = Object.entries(TRACKER_CONFIG).map(([v, c]) => ({ value: v, label: c.label }));
+const STATUS_OPTIONS  = Object.entries(STATUS_CONFIG).map(([v, c])  => ({ value: v, label: c.label }));
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export function DefectsPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const qc = useQueryClient();
+  const { isEditor } = useProjectRole(projectId);
   const [statusFilter, setStatusFilter] = useState('');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['defects', projectId, statusFilter],
@@ -87,6 +93,15 @@ export function DefectsPage() {
   return (
     <AppLayout title="Defects">
       <div style={{ maxWidth: 900, margin: '0 auto' }}>
+
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+          {isEditor && (
+            <Button variant="primary" size="sm" onClick={() => setShowCreate(true)}>
+              + New defect
+            </Button>
+          )}
+        </div>
 
         {/* Stats */}
         <div className="grid-4" style={{ marginBottom: 24 }}>
@@ -132,7 +147,7 @@ export function DefectsPage() {
             <EmptyState
               icon="✓"
               title={statusFilter ? 'No defects with this status' : 'No defects filed'}
-              description="Defects are filed from the run results viewer when a test case fails."
+              description="Defects are filed from run results or directly with the + New defect button."
             />
           )}
 
@@ -178,7 +193,7 @@ export function DefectsPage() {
                       <Select
                         value={defect.status}
                         onChange={e => updateStatus.mutate({ defectId: defect.id, status: e.target.value })}
-                        options={Object.entries(STATUS_CONFIG).map(([v, c]) => ({ value: v, label: c.label }))}
+                        options={STATUS_OPTIONS}
                       />
                       <button onClick={() => setUpdatingId(null)}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--gray-400)', fontSize: '0.875rem' }}>
@@ -198,13 +213,15 @@ export function DefectsPage() {
                     </button>
                   )}
 
-                  <button
-                    onClick={() => removeDefect.mutate(defect.id)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--gray-300)', fontSize: '0.875rem', padding: '2px 4px' }}
-                    title="Remove defect"
-                  >
-                    ✕
-                  </button>
+                  {isEditor && (
+                    <button
+                      onClick={() => removeDefect.mutate(defect.id)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--gray-300)', fontSize: '0.875rem', padding: '2px 4px' }}
+                      title="Remove defect"
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
 
                 {/* Notes */}
@@ -214,22 +231,26 @@ export function DefectsPage() {
                   </div>
                 )}
 
-                {/* Footer — test case + run link */}
+                {/* Footer — test case + run link, or standalone indicator */}
                 <div style={{ display: 'flex', gap: 12, fontSize: '0.8125rem', color: 'var(--gray-400)', flexWrap: 'wrap' }}>
-                  {defect.runResult.testCase && (
-                    <span>
-                      🧪 {defect.runResult.testCase.title}
-                    </span>
+                  {defect.runResult ? (
+                    <>
+                      {defect.runResult.testCase && (
+                        <span>🧪 {defect.runResult.testCase.title}</span>
+                      )}
+                      <span>
+                        ▶ {defect.runResult.run.name}
+                        <span style={{
+                          marginLeft: 6, background: 'var(--gray-100)', color: 'var(--gray-500)',
+                          padding: '1px 6px', borderRadius: 4, fontFamily: 'monospace', fontSize: '0.75rem',
+                        }}>
+                          {defect.runResult.run.env}
+                        </span>
+                      </span>
+                    </>
+                  ) : (
+                    <span style={{ fontStyle: 'italic' }}>No linked test</span>
                   )}
-                  <span>
-                    ▶ {defect.runResult.run.name}
-                    <span style={{
-                      marginLeft: 6, background: 'var(--gray-100)', color: 'var(--gray-500)',
-                      padding: '1px 6px', borderRadius: 4, fontFamily: 'monospace', fontSize: '0.75rem',
-                    }}>
-                      {defect.runResult.run.env}
-                    </span>
-                  </span>
                   <span>
                     {new Date(defect.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </span>
@@ -239,6 +260,113 @@ export function DefectsPage() {
           })}
         </div>
       </div>
+
+      {/* Create standalone defect modal */}
+      {showCreate && projectId && (
+        <CreateDefectModal
+          projectId={projectId}
+          onClose={() => setShowCreate(false)}
+          onCreated={() => {
+            qc.invalidateQueries({ queryKey: ['defects', projectId] });
+            setShowCreate(false);
+          }}
+        />
+      )}
     </AppLayout>
+  );
+}
+
+// ── Create defect modal ───────────────────────────────────────────────────────
+
+function CreateDefectModal({
+  projectId, onClose, onCreated,
+}: {
+  projectId: string;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [title, setTitle]       = useState('');
+  const [tracker, setTracker]   = useState('internal');
+  const [ref, setRef]           = useState('');
+  const [notes, setNotes]       = useState('');
+  const [error, setError]       = useState('');
+
+  const mutation = useMutation({
+    mutationFn: () => api.post(`projects/${projectId}/defects`, {
+      title, tracker,
+      externalRef: ref.trim() || undefined,
+      notes: notes.trim() || undefined,
+    }),
+    onSuccess: onCreated,
+    onError: (err: Error) => setError(err.message),
+  });
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError('');
+    if (!title.trim()) { setError('Title is required'); return; }
+    mutation.mutate();
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="New defect"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" loading={mutation.isPending} onClick={handleSubmit as () => void}>
+            File defect
+          </Button>
+        </>
+      }
+    >
+      {error && <div style={{ marginBottom: 16 }}><Alert type="error">{error}</Alert></div>}
+      <form onSubmit={handleSubmit}>
+        <Input
+          label="Title"
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          placeholder="Login fails on Safari 17"
+          autoFocus
+          required
+        />
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: 6, color: 'var(--gray-700)' }}>
+            Tracker
+          </label>
+          <Select
+            value={tracker}
+            onChange={e => setTracker(e.target.value)}
+            options={TRACKER_OPTIONS}
+          />
+        </div>
+        <Input
+          label="External ref URL (optional)"
+          value={ref}
+          onChange={e => setRef(e.target.value)}
+          placeholder="https://jira.company.com/browse/BUG-123"
+        />
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: 6, color: 'var(--gray-700)' }}>
+            Notes (optional)
+          </label>
+          <textarea
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            placeholder="Steps to reproduce, affected environments, etc."
+            rows={3}
+            style={{
+              width: '100%', padding: '8px 12px',
+              border: '1px solid var(--border-color)', borderRadius: 8,
+              fontSize: '0.875rem', resize: 'vertical', outline: 'none',
+              background: 'var(--surface-base)', color: 'var(--gray-900)',
+              boxSizing: 'border-box',
+            }}
+          />
+        </div>
+      </form>
+    </Modal>
   );
 }

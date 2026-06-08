@@ -41,7 +41,7 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
 
     const defects = await prisma.defect.findMany({
       where: {
-        runResult: { run: { projectId } },
+        projectId,
         ...(status && VALID_STATUSES.includes(status as typeof VALID_STATUSES[number])
           ? { status }
           : {}),
@@ -51,6 +51,26 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
     });
 
     return { defects };
+  });
+
+  // POST /:projectId/defects — file a standalone defect (not linked to any test result)
+  app.post('/:projectId/defects', { preHandler: requireRole('editor') }, async (req, reply) => {
+    const { projectId } = req.params as { projectId: string };
+    const body = CreateDefectSchema.parse(req.body);
+
+    const defect = await prisma.defect.create({
+      data: {
+        projectId,
+        title:       body.title.trim(),
+        tracker:     body.tracker,
+        externalRef: body.externalRef?.trim() || null,
+        notes:       body.notes?.trim() || null,
+        status:      'open',
+      },
+      include: DEFECT_INCLUDE,
+    });
+
+    return reply.code(201).send(defect);
   });
 
   // POST /:projectId/results/:resultId/defect — file a defect against a failed result
@@ -71,6 +91,7 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
 
     const defect = await prisma.defect.create({
       data: {
+        projectId,
         runResultId: result.id,
         title:       body.title.trim(),
         tracker:     body.tracker,
@@ -86,11 +107,12 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
 
   // PATCH /:projectId/defects/:defectId — update status, ref, notes
   app.patch('/:projectId/defects/:defectId', { preHandler: requireRole('editor') }, async (req, reply) => {
-    const { defectId } = req.params as { projectId: string; defectId: string };
+    const { projectId, defectId } = req.params as { projectId: string; defectId: string };
     const body = UpdateDefectSchema.parse(req.body);
 
     const existing = await prisma.defect.findUnique({ where: { id: defectId } });
     if (!existing) return reply.code(404).send({ error: 'Defect not found' });
+    if (existing.projectId !== projectId) return reply.code(403).send({ error: 'Forbidden' });
 
     const updated = await prisma.defect.update({
       where: { id: defectId },
@@ -109,10 +131,11 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
 
   // DELETE /:projectId/defects/:defectId — remove a defect
   app.delete('/:projectId/defects/:defectId', { preHandler: requireRole('editor') }, async (req, reply) => {
-    const { defectId } = req.params as { projectId: string; defectId: string };
+    const { projectId, defectId } = req.params as { projectId: string; defectId: string };
 
     const existing = await prisma.defect.findUnique({ where: { id: defectId } });
     if (!existing) return reply.code(404).send({ error: 'Defect not found' });
+    if (existing.projectId !== projectId) return reply.code(403).send({ error: 'Forbidden' });
 
     await prisma.defect.delete({ where: { id: defectId } });
     return reply.code(204).send();
