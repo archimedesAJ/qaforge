@@ -225,6 +225,70 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
     return { userId, email: target.email, name: target.name, systemAdmin };
   });
 
+  // GET /sysadmin/overview — system-wide stats and per-project health (sysadmin only)
+  app.get('/sysadmin/overview', async (req, reply) => {
+    const caller = (req as unknown as { isSystemAdmin?: boolean });
+    if (!caller.isSystemAdmin) return reply.code(403).send({ error: 'System admin access required' });
+
+    const [totalUsers, activatedUsers, projects, recentRuns, openDefectsGroups, openRunsCount] = await Promise.all([
+      prisma.user.count(),
+      prisma.user.count({ where: { activated: true } }),
+      prisma.project.findMany({
+        include: {
+          _count: { select: { cases: true, runs: true, members: true } },
+          runs: {
+            orderBy: { startedAt: 'desc' },
+            take: 1,
+            select: { id: true, name: true, env: true, status: true, startedAt: true },
+          },
+        },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      prisma.testRun.findMany({
+        select: {
+          id: true, name: true, env: true, status: true, startedAt: true,
+          project: { select: { id: true, name: true } },
+        },
+        orderBy: { startedAt: 'desc' },
+        take: 10,
+      }),
+      prisma.defect.groupBy({
+        by: ['projectId'],
+        where: { status: { in: ['open', 'in_progress'] } },
+        _count: { id: true },
+      }),
+      prisma.testRun.count({ where: { status: 'open' } }),
+    ]);
+
+    const openDefectsMap: Record<string, number> = {};
+    for (const g of openDefectsGroups) openDefectsMap[g.projectId] = g._count.id;
+
+    const totalCases      = projects.reduce((s, p) => s + p._count.cases, 0);
+    const totalOpenDefects = openDefectsGroups.reduce((s, g) => s + g._count.id, 0);
+
+    return {
+      stats: {
+        totalProjects: projects.length,
+        totalUsers,
+        activatedUsers,
+        totalCases,
+        openRuns: openRunsCount,
+        openDefects: totalOpenDefects,
+      },
+      projects: projects.map(p => ({
+        id: p.id,
+        name: p.name,
+        slug: p.slug,
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
+        counts: { cases: p._count.cases, runs: p._count.runs, members: p._count.members },
+        openDefects: openDefectsMap[p.id] ?? 0,
+        latestRun: p.runs[0] ?? null,
+      })),
+      recentRuns,
+    };
+  });
+
   // GET /sysadmin/users — list all users with their project memberships (sysadmin only)
   app.get('/sysadmin/users', async (req, reply) => {
     const caller = (req as unknown as { isSystemAdmin?: boolean });

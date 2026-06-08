@@ -47,6 +47,11 @@ export function ProjectsPage() {
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             {isSystemAdmin && (
+              <Button variant="secondary" onClick={() => navigate('/admin/dashboard')}>
+                📊 Overview
+              </Button>
+            )}
+            {isSystemAdmin && (
               <Button variant="secondary" onClick={() => navigate('/admin/users')}>
                 👥 Manage users
               </Button>
