@@ -303,9 +303,16 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
     const rows = parseCsv(csvText);
     if (rows.length === 0) return reply.code(400).send({ error: 'CSV has no data rows' });
 
-    // Pre-load suites so we can resolve names → IDs
-    const suites = await prisma.testSuite.findMany({ where: { projectId }, select: { id: true, name: true } });
-    const suiteMap = new Map(suites.map((s: { id: string; name: string }) => [s.name.toLowerCase().trim(), s.id]));
+    // Pre-load suites so we can resolve paths → IDs.
+    // Key format: `${parentId ?? ''}|${name.toLowerCase()}` — avoids collisions
+    // between same-named suites under different parents.
+    const suites = await prisma.testSuite.findMany({ where: { projectId }, select: { id: true, name: true, parentId: true } });
+    const suiteMap = new Map(
+      suites.map((s: { id: string; name: string; parentId: string | null }) => [
+        `${s.parentId ?? ''}|${s.name.toLowerCase().trim()}`,
+        s.id,
+      ])
+    );
 
     // Pre-load existing titles to prevent duplicates
     const existingCases = await prisma.testCase.findMany({
@@ -336,13 +343,21 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
       const preconditions = (row['preconditions'] ?? row['precondition'])?.trim() || undefined;
       let suiteId: string | undefined;
       if (row['suite']) {
-        const suiteName = row['suite'].trim();
-        const suiteKey  = suiteName.toLowerCase();
-        if (!suiteMap.has(suiteKey)) {
-          const newSuite = await prisma.testSuite.create({ data: { projectId, name: suiteName } });
-          suiteMap.set(suiteKey, newSuite.id);
+        // Support hierarchical paths: "Airtime/Section B" → Section B nested inside Airtime.
+        // Each "/" segment is a level; suites are found or created at each level.
+        const segments = row['suite'].split('/').map((s: string) => s.trim()).filter(Boolean);
+        let parentId: string | null = null;
+        for (const segment of segments) {
+          const key: string = `${parentId ?? ''}|${segment.toLowerCase()}`;
+          if (!suiteMap.has(key)) {
+            const newSuite = await prisma.testSuite.create({
+              data: { projectId, name: segment, parentId: parentId ?? undefined },
+            });
+            suiteMap.set(key, newSuite.id);
+          }
+          parentId = suiteMap.get(key)!;
         }
-        suiteId = suiteMap.get(suiteKey);
+        suiteId = parentId ?? undefined;
       }
       const VALID_FRAMEWORKS = new Set(['Playwright', 'Cypress', 'Selenium', 'WebdriverIO', 'Appium']);
       let stepsData: unknown;
