@@ -161,6 +161,21 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
     return { ...newCase, previousVersion: existing.version };
   });
 
+  // PATCH /projects/:projectId/cases/:caseId — reassign suite (no version bump) — editor+
+  app.patch('/:projectId/cases/:caseId', { preHandler: requireRole('editor') }, async (req, reply) => {
+    const { caseId } = req.params as { projectId: string; caseId: string };
+    const { suiteId } = req.body as { suiteId: string | null };
+
+    const existing = await prisma.testCase.findUnique({ where: { id: caseId } });
+    if (!existing) return reply.code(404).send({ error: 'Test case not found' });
+
+    const updated = await prisma.testCase.update({
+      where: { id: caseId },
+      data: { suiteId: suiteId ?? null },
+    });
+    return updated;
+  });
+
   // GET /projects/:projectId/cases/:caseId/history — viewer+
   app.get('/:projectId/cases/:caseId/history', { preHandler: requireRole('viewer') }, async (req, reply) => {
     const { caseId } = req.params as { caseId: string };

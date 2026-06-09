@@ -913,8 +913,25 @@ function CaseRow({
   onLinks: () => void;
 }) {
   return (
-    <tr style={{ background: selected ? 'var(--color-primary-light)' : undefined }}>
-      <td onClick={e => e.stopPropagation()}>
+    <tr
+      draggable={canEdit}
+      onDragStart={e => {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('application/x-case', tc.id);
+        e.dataTransfer.setData('text/plain', tc.title);
+      }}
+      style={{
+        background: selected ? 'var(--color-primary-light)' : undefined,
+        cursor: canEdit ? 'grab' : undefined,
+      }}
+    >
+      <td onClick={e => e.stopPropagation()} style={{ userSelect: 'none' }}>
+        {canEdit && (
+          <span style={{
+            color: 'var(--gray-300)', fontSize: '0.625rem',
+            marginRight: 4, letterSpacing: '-1px', verticalAlign: 'middle',
+          }}>⠿</span>
+        )}
         <input
           type="checkbox"
           checked={selected}

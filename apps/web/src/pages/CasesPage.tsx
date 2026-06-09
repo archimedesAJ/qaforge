@@ -1,11 +1,13 @@
 import { useState, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '../components/shared/AppLayout';
 import { SuiteTree } from '../components/editor/SuiteTree';
 import { CaseList } from '../components/editor/CaseList';
 import { CaseEditor } from '../components/editor/CaseEditor';
 import { TestSetsPanel } from '../components/editor/TestSetsPanel';
 import { useProjectRole } from '../hooks/useProjectRole';
+import { api } from '../lib/api';
 import type { TestCase } from '@qaforge/types';
 
 type Panel = 'list' | 'editor';
@@ -39,6 +41,13 @@ export function CasesPage() {
   const startW   = useRef(DEFAULT_SIDEBAR);
 
   const { isEditor } = useProjectRole(projectId);
+  const qc = useQueryClient();
+
+  const moveCaseToSuite = useMutation({
+    mutationFn: ({ caseId, suiteId }: { caseId: string; suiteId: string | null }) =>
+      api.patch(`projects/${projectId}/cases/${caseId}`, { suiteId }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['cases', projectId] }),
+  });
 
   const onDividerMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -126,6 +135,7 @@ export function CasesPage() {
                 selectedId={selectedSuiteId}
                 canManage={isEditor}
                 onSelect={id => { setSelectedSuiteId(id); setPanel('list'); }}
+                onCaseDrop={isEditor ? (caseId, suiteId) => moveCaseToSuite.mutate({ caseId, suiteId }) : undefined}
               />
             </div>
 

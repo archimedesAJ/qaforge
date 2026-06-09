@@ -17,12 +17,13 @@ interface SuiteTreeProps {
   canManage?: boolean;
   canCreate?: boolean;
   onSelect: (suiteId: string | null) => void;
+  onCaseDrop?: (caseId: string, suiteId: string | null) => void;
 }
 
 // '__root__' means "drop as a top-level suite (no parent)"
 type DragOverTarget = string | '__root__' | null;
 
-export function SuiteTree({ projectId, selectedId, canManage = true, canCreate = canManage, onSelect }: SuiteTreeProps) {
+export function SuiteTree({ projectId, selectedId, canManage = true, canCreate = canManage, onSelect, onCaseDrop }: SuiteTreeProps) {
   const qc = useQueryClient();
   const [expanded, setExpanded]           = useState<Set<string>>(new Set());
   const [creating, setCreating]           = useState<string | null>(null);
@@ -84,24 +85,29 @@ export function SuiteTree({ projectId, selectedId, canManage = true, canCreate =
     return children.some(c => isDescendantOrSelf(c.id, nodeId));
   }
 
-  function isValidDrop(targetId: string | null): boolean {
+  function isValidSuiteDrop(targetId: string | null): boolean {
     if (!draggingId) return false;
     if (targetId === null) {
-      // Dropping to root — valid unless already a root suite
       const dragged = suites.find(s => s.id === draggingId);
-      return !!dragged && !!dragged.parentId; // only useful if it has a parent
+      return !!dragged && !!dragged.parentId;
     }
     return !isDescendantOrSelf(draggingId, targetId);
   }
 
-  function handleDrop(targetParentId: string | null) {
-    if (!draggingId || !isValidDrop(targetParentId)) return;
+  function handleSuiteDrop(targetParentId: string | null) {
+    if (!draggingId || !isValidSuiteDrop(targetParentId)) return;
     moveSuite.mutate({ suiteId: draggingId, parentId: targetParentId });
-    // Auto-expand the target so the moved suite is visible
-    if (targetParentId) {
-      setExpanded(prev => new Set([...prev, targetParentId]));
-    }
+    if (targetParentId) setExpanded(prev => new Set([...prev, targetParentId]));
     setDraggingId(null);
+    setDragOverTarget(null);
+  }
+
+  function handleCaseDrop(e: React.DragEvent, suiteId: string | null) {
+    const caseId = e.dataTransfer.getData('application/x-case');
+    if (caseId && onCaseDrop) {
+      onCaseDrop(caseId, suiteId);
+      if (suiteId) setExpanded(prev => new Set([...prev, suiteId]));
+    }
     setDragOverTarget(null);
   }
 
@@ -129,7 +135,7 @@ export function SuiteTree({ projectId, selectedId, canManage = true, canCreate =
     const isSelected  = selectedId === suite.id;
     const isRenaming  = renaming === suite.id;
     const isDragging  = draggingId === suite.id;
-    const isDragOver  = dragOverTarget === suite.id && isValidDrop(suite.id);
+    const isDragOver  = dragOverTarget === suite.id && (isValidSuiteDrop(suite.id) || !!onCaseDrop);
 
     return (
       <div key={suite.id}>
@@ -139,14 +145,18 @@ export function SuiteTree({ projectId, selectedId, canManage = true, canCreate =
             e.stopPropagation();
             setDraggingId(suite.id);
             e.dataTransfer.effectAllowed = 'move';
-            // Ghost label
             e.dataTransfer.setData('text/plain', suite.name);
+            e.dataTransfer.setData('application/x-suite', suite.id);
           }}
           onDragEnd={() => { setDraggingId(null); setDragOverTarget(null); }}
           onDragOver={e => {
             e.preventDefault();
             e.stopPropagation();
-            if (isValidDrop(suite.id)) {
+            const isCaseDrag = e.dataTransfer.types.includes('application/x-case');
+            if (isCaseDrag && onCaseDrop) {
+              e.dataTransfer.dropEffect = 'move';
+              setDragOverTarget(suite.id);
+            } else if (!isCaseDrag && isValidSuiteDrop(suite.id)) {
               e.dataTransfer.dropEffect = 'move';
               setDragOverTarget(suite.id);
             } else {
@@ -161,7 +171,11 @@ export function SuiteTree({ projectId, selectedId, canManage = true, canCreate =
           onDrop={e => {
             e.preventDefault();
             e.stopPropagation();
-            handleDrop(suite.id);
+            if (e.dataTransfer.types.includes('application/x-case')) {
+              handleCaseDrop(e, suite.id);
+            } else {
+              handleSuiteDrop(suite.id);
+            }
           }}
           style={{
             display: 'flex',
@@ -299,7 +313,7 @@ export function SuiteTree({ projectId, selectedId, canManage = true, canCreate =
     );
   }
 
-  const rootDragOver = dragOverTarget === '__root__' && isValidDrop(null);
+  const rootDragOver = dragOverTarget === '__root__' && (isValidSuiteDrop(null) || !!onCaseDrop);
 
   return (
     <>
@@ -312,16 +326,22 @@ export function SuiteTree({ projectId, selectedId, canManage = true, canCreate =
         onCancel={() => setConfirmSuite(null)}
       />
       <div style={{ padding: '8px 0' }}>
-        {/* All cases — also a drop target to promote a suite to root */}
+        {/* All cases — drop target to promote a suite to root, or unassign a case from its suite */}
         <div
           onClick={() => onSelect(null)}
           onDragOver={e => {
             e.preventDefault();
-            if (isValidDrop(null)) { e.dataTransfer.dropEffect = 'move'; setDragOverTarget('__root__'); }
+            const isCaseDrag = e.dataTransfer.types.includes('application/x-case');
+            if (isCaseDrag && onCaseDrop) { e.dataTransfer.dropEffect = 'move'; setDragOverTarget('__root__'); }
+            else if (!isCaseDrag && isValidSuiteDrop(null)) { e.dataTransfer.dropEffect = 'move'; setDragOverTarget('__root__'); }
             else e.dataTransfer.dropEffect = 'none';
           }}
           onDragLeave={() => setDragOverTarget(null)}
-          onDrop={e => { e.preventDefault(); handleDrop(null); }}
+          onDrop={e => {
+            e.preventDefault();
+            if (e.dataTransfer.types.includes('application/x-case')) { handleCaseDrop(e, null); }
+            else { handleSuiteDrop(null); }
+          }}
           style={{
             display: 'flex', alignItems: 'center', gap: 6,
             padding: '5px 8px', borderRadius: 6, cursor: 'pointer',
