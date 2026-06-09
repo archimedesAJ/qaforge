@@ -19,14 +19,19 @@ interface SuiteTreeProps {
   onSelect: (suiteId: string | null) => void;
 }
 
+// '__root__' means "drop as a top-level suite (no parent)"
+type DragOverTarget = string | '__root__' | null;
+
 export function SuiteTree({ projectId, selectedId, canManage = true, canCreate = canManage, onSelect }: SuiteTreeProps) {
   const qc = useQueryClient();
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [creating, setCreating] = useState<string | null>(null); // parentId or 'root'
-  const [newName, setNewName] = useState('');
-  const [renaming, setRenaming]       = useState<string | null>(null);
-  const [renameName, setRenameName]   = useState('');
-  const [confirmSuite, setConfirmSuite] = useState<{ id: string; name: string } | null>(null);
+  const [expanded, setExpanded]           = useState<Set<string>>(new Set());
+  const [creating, setCreating]           = useState<string | null>(null);
+  const [newName, setNewName]             = useState('');
+  const [renaming, setRenaming]           = useState<string | null>(null);
+  const [renameName, setRenameName]       = useState('');
+  const [confirmSuite, setConfirmSuite]   = useState<{ id: string; name: string } | null>(null);
+  const [draggingId, setDraggingId]       = useState<string | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<DragOverTarget>(null);
 
   const { data } = useQuery({
     queryKey: ['suites', projectId],
@@ -63,8 +68,42 @@ export function SuiteTree({ projectId, selectedId, canManage = true, canCreate =
     },
   });
 
+  const moveSuite = useMutation({
+    mutationFn: ({ suiteId, parentId }: { suiteId: string; parentId: string | null }) =>
+      api.patch(`projects/${projectId}/suites/${suiteId}`, { parentId }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['suites', projectId] }),
+  });
+
   const suites = data?.suites ?? [];
-  const roots = suites.filter(s => !s.parentId);
+  const roots  = suites.filter(s => !s.parentId);
+
+  // Returns true if `nodeId` is the same as `ancestorId` or is anywhere under it
+  function isDescendantOrSelf(ancestorId: string, nodeId: string): boolean {
+    if (nodeId === ancestorId) return true;
+    const children = suites.filter(s => s.parentId === ancestorId);
+    return children.some(c => isDescendantOrSelf(c.id, nodeId));
+  }
+
+  function isValidDrop(targetId: string | null): boolean {
+    if (!draggingId) return false;
+    if (targetId === null) {
+      // Dropping to root — valid unless already a root suite
+      const dragged = suites.find(s => s.id === draggingId);
+      return !!dragged && !!dragged.parentId; // only useful if it has a parent
+    }
+    return !isDescendantOrSelf(draggingId, targetId);
+  }
+
+  function handleDrop(targetParentId: string | null) {
+    if (!draggingId || !isValidDrop(targetParentId)) return;
+    moveSuite.mutate({ suiteId: draggingId, parentId: targetParentId });
+    // Auto-expand the target so the moved suite is visible
+    if (targetParentId) {
+      setExpanded(prev => new Set([...prev, targetParentId]));
+    }
+    setDraggingId(null);
+    setDragOverTarget(null);
+  }
 
   function toggle(id: string) {
     setExpanded(prev => {
@@ -85,14 +124,45 @@ export function SuiteTree({ projectId, selectedId, canManage = true, canCreate =
   }
 
   function renderSuite(suite: Suite, depth = 0) {
-    const children = suites.filter(s => s.parentId === suite.id);
-    const isExpanded = expanded.has(suite.id);
-    const isSelected = selectedId === suite.id;
-    const isRenaming = renaming === suite.id;
+    const children    = suites.filter(s => s.parentId === suite.id);
+    const isExpanded  = expanded.has(suite.id);
+    const isSelected  = selectedId === suite.id;
+    const isRenaming  = renaming === suite.id;
+    const isDragging  = draggingId === suite.id;
+    const isDragOver  = dragOverTarget === suite.id && isValidDrop(suite.id);
 
     return (
       <div key={suite.id}>
         <div
+          draggable={canManage}
+          onDragStart={e => {
+            e.stopPropagation();
+            setDraggingId(suite.id);
+            e.dataTransfer.effectAllowed = 'move';
+            // Ghost label
+            e.dataTransfer.setData('text/plain', suite.name);
+          }}
+          onDragEnd={() => { setDraggingId(null); setDragOverTarget(null); }}
+          onDragOver={e => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (isValidDrop(suite.id)) {
+              e.dataTransfer.dropEffect = 'move';
+              setDragOverTarget(suite.id);
+            } else {
+              e.dataTransfer.dropEffect = 'none';
+            }
+          }}
+          onDragLeave={e => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+              setDragOverTarget(null);
+            }
+          }}
+          onDrop={e => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleDrop(suite.id);
+          }}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -100,17 +170,34 @@ export function SuiteTree({ projectId, selectedId, canManage = true, canCreate =
             padding: '5px 8px',
             paddingLeft: 8 + depth * 16,
             borderRadius: 6,
-            background: isSelected ? 'var(--color-primary-light)' : 'transparent',
-            cursor: 'pointer',
+            background: isDragOver
+              ? 'var(--color-primary-light)'
+              : isSelected ? 'var(--color-primary-light)' : 'transparent',
+            cursor: isDragging ? 'grabbing' : canManage ? 'grab' : 'pointer',
             transition: 'background 0.1s',
+            opacity: isDragging ? 0.4 : 1,
+            outline: isDragOver ? '2px dashed var(--color-primary)' : 'none',
+            outlineOffset: -2,
           }}
           onMouseEnter={e => {
-            if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'var(--gray-100)';
+            if (!isSelected && !isDragOver)
+              (e.currentTarget as HTMLElement).style.background = 'var(--gray-100)';
           }}
           onMouseLeave={e => {
-            if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'transparent';
+            if (!isSelected && !isDragOver)
+              (e.currentTarget as HTMLElement).style.background = 'transparent';
           }}
         >
+          {/* Drag handle grip (visible to editors) */}
+          {canManage && (
+            <span style={{
+              color: 'var(--gray-300)', fontSize: '0.625rem', cursor: 'grab',
+              flexShrink: 0, letterSpacing: '-1px', lineHeight: 1,
+            }}>
+              ⠿
+            </span>
+          )}
+
           {/* Chevron */}
           <button
             onClick={() => toggle(suite.id)}
@@ -126,7 +213,7 @@ export function SuiteTree({ projectId, selectedId, canManage = true, canCreate =
 
           {/* Folder icon */}
           <span style={{ fontSize: '0.875rem', flexShrink: 0 }}>
-            {isExpanded ? '📂' : '📁'}
+            {isDragOver ? '📂' : isExpanded ? '📂' : '📁'}
           </span>
 
           {/* Name or rename input */}
@@ -161,7 +248,7 @@ export function SuiteTree({ projectId, selectedId, canManage = true, canCreate =
             </span>
           )}
 
-          {/* Actions (visible on hover via parent hover) */}
+          {/* Actions */}
           {!isRenaming && (canCreate || canManage) && (
             <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
               {canCreate && (
@@ -212,66 +299,86 @@ export function SuiteTree({ projectId, selectedId, canManage = true, canCreate =
     );
   }
 
+  const rootDragOver = dragOverTarget === '__root__' && isValidDrop(null);
+
   return (
     <>
-    <ConfirmDialog
-      open={!!confirmSuite}
-      title="Delete suite"
-      message={`Delete suite "${confirmSuite?.name}"? All test cases inside will be unassigned.`}
-      confirmLabel="Delete"
-      onConfirm={() => { deleteSuite.mutate(confirmSuite!.id); setConfirmSuite(null); }}
-      onCancel={() => setConfirmSuite(null)}
-    />
-    <div style={{ padding: '8px 0' }}>
-      {/* All cases (no suite filter) */}
-      <div
-        onClick={() => onSelect(null)}
-        style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          padding: '5px 8px', borderRadius: 6, cursor: 'pointer',
-          background: selectedId === null ? 'var(--color-primary-light)' : 'transparent',
-          fontSize: '0.875rem',
-          color: selectedId === null ? 'var(--color-primary)' : 'var(--gray-600)',
-          fontWeight: selectedId === null ? 500 : 400,
-          marginBottom: 4,
-        }}
-        onMouseEnter={e => { if (selectedId !== null) (e.currentTarget as HTMLElement).style.background = 'var(--gray-100)'; }}
-        onMouseLeave={e => { if (selectedId !== null) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-      >
-        <span>📋</span>
-        <span>All cases</span>
+      <ConfirmDialog
+        open={!!confirmSuite}
+        title="Delete suite"
+        message={`Delete suite "${confirmSuite?.name}"? All test cases inside will be unassigned.`}
+        confirmLabel="Delete"
+        onConfirm={() => { deleteSuite.mutate(confirmSuite!.id); setConfirmSuite(null); }}
+        onCancel={() => setConfirmSuite(null)}
+      />
+      <div style={{ padding: '8px 0' }}>
+        {/* All cases — also a drop target to promote a suite to root */}
+        <div
+          onClick={() => onSelect(null)}
+          onDragOver={e => {
+            e.preventDefault();
+            if (isValidDrop(null)) { e.dataTransfer.dropEffect = 'move'; setDragOverTarget('__root__'); }
+            else e.dataTransfer.dropEffect = 'none';
+          }}
+          onDragLeave={() => setDragOverTarget(null)}
+          onDrop={e => { e.preventDefault(); handleDrop(null); }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '5px 8px', borderRadius: 6, cursor: 'pointer',
+            background: rootDragOver
+              ? 'var(--color-primary-light)'
+              : selectedId === null ? 'var(--color-primary-light)' : 'transparent',
+            fontSize: '0.875rem',
+            color: selectedId === null ? 'var(--color-primary)' : 'var(--gray-600)',
+            fontWeight: selectedId === null ? 500 : 400,
+            marginBottom: 4,
+            outline: rootDragOver ? '2px dashed var(--color-primary)' : 'none',
+            outlineOffset: -2,
+          }}
+          onMouseEnter={e => { if (selectedId !== null && !rootDragOver) (e.currentTarget as HTMLElement).style.background = 'var(--gray-100)'; }}
+          onMouseLeave={e => { if (selectedId !== null && !rootDragOver) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+        >
+          <span>📋</span>
+          <span>All cases</span>
+          {rootDragOver && (
+            <span style={{ fontSize: '0.75rem', color: 'var(--color-primary)', marginLeft: 4 }}>
+              Move to top level
+            </span>
+          )}
+        </div>
+
+        {/* Suite tree */}
+        {roots.map(suite => renderSuite(suite))}
+
+        {/* Inline create root suite */}
+        {creating === 'root' && (
+          <InlineCreate
+            depth={0}
+            value={newName}
+            onChange={setNewName}
+            onConfirm={() => handleCreate(undefined)}
+            onCancel={() => { setCreating(null); setNewName(''); }}
+          />
+        )}
+
+        {/* New suite button */}
+        {canCreate && (
+          <button
+            onClick={() => setCreating('root')}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              width: '100%', padding: '5px 8px', marginTop: 4,
+              background: 'none', border: 'none', cursor: 'pointer',
+              fontSize: '0.8125rem', color: 'var(--gray-400)', borderRadius: 6,
+              textAlign: 'left',
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--color-primary)'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--gray-400)'; }}
+          >
+            <span>+</span> New suite
+          </button>
+        )}
       </div>
-
-      {/* Suite tree */}
-      {roots.map(suite => renderSuite(suite))}
-
-      {/* Inline create root suite */}
-      {creating === 'root' && (
-        <InlineCreate
-          depth={0}
-          value={newName}
-          onChange={setNewName}
-          onConfirm={() => handleCreate(undefined)}
-          onCancel={() => { setCreating(null); setNewName(''); }}
-        />
-      )}
-
-      {/* New suite button — editor+ */}
-      {canCreate && <button
-        onClick={() => setCreating('root')}
-        style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          width: '100%', padding: '5px 8px', marginTop: 4,
-          background: 'none', border: 'none', cursor: 'pointer',
-          fontSize: '0.8125rem', color: 'var(--gray-400)', borderRadius: 6,
-          textAlign: 'left',
-        }}
-        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--color-primary)'; }}
-        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--gray-400)'; }}
-      >
-        <span>+</span> New suite
-      </button>}
-    </div>
     </>
   );
 }

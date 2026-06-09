@@ -399,6 +399,31 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
     return prisma.testSuite.update({ where: { id: suiteId }, data: { name } });
   });
 
+  // PATCH /projects/:projectId/suites/:suiteId — reparent (drag-and-drop) — editor+
+  app.patch('/:projectId/suites/:suiteId', { preHandler: requireRole('editor') }, async (req, reply) => {
+    const { projectId, suiteId } = req.params as { projectId: string; suiteId: string };
+    const { parentId } = req.body as { parentId: string | null };
+
+    // Guard: can't make a suite its own ancestor
+    if (parentId) {
+      const all = await prisma.testSuite.findMany({ where: { projectId }, select: { id: true, parentId: true } });
+      function isDescendant(ancestorId: string, nodeId: string): boolean {
+        if (nodeId === ancestorId) return true;
+        const children = all.filter(s => s.parentId === ancestorId);
+        return children.some(c => isDescendant(c.id, nodeId));
+      }
+      if (isDescendant(suiteId, parentId)) {
+        return reply.code(400).send({ error: 'Cannot move a suite into one of its own descendants' });
+      }
+    }
+
+    const suite = await prisma.testSuite.update({
+      where: { id: suiteId },
+      data: { parentId: parentId ?? null },
+    });
+    return suite;
+  });
+
   // DELETE /projects/:projectId/suites/:suiteId — editor+
   app.delete('/:projectId/suites/:suiteId', { preHandler: requireRole('editor') }, async (req, reply) => {
     const { suiteId } = req.params as { suiteId: string };
