@@ -235,7 +235,7 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
       prisma.user.count({ where: { activated: true } }),
       prisma.project.findMany({
         include: {
-          _count: { select: { cases: true, runs: true, members: true } },
+          _count: { select: { cases: { where: { archived: false } }, runs: true, members: true } },
           runs: {
             orderBy: { startedAt: 'desc' },
             take: 1,

@@ -212,15 +212,23 @@ export function SuiteTree({ projectId, selectedId, canManage = true, canCreate =
             </span>
           )}
 
-          {/* Chevron */}
+          {/* Chevron — rendered for all suites; invisible when no children so layout stays consistent */}
           <button
-            onClick={() => toggle(suite.id)}
+            onClick={e => { e.stopPropagation(); toggle(suite.id); }}
             style={{
-              background: 'none', border: 'none', padding: '0 2px',
-              color: 'var(--gray-400)', fontSize: '0.7rem',
-              cursor: 'pointer', width: 16, flexShrink: 0,
-              opacity: children.length > 0 ? 1 : 0,
+              background: 'none', border: 'none',
+              padding: '4px 5px',
+              color: children.length > 0 ? 'var(--gray-600)' : 'transparent',
+              fontSize: '0.8rem',
+              cursor: children.length > 0 ? 'pointer' : 'default',
+              width: 22, height: 22,
+              flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              borderRadius: 4,
+              pointerEvents: children.length > 0 ? 'auto' : 'none',
             }}
+            onMouseEnter={e => { if (children.length > 0) (e.currentTarget as HTMLElement).style.background = 'var(--gray-200)'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'none'; }}
           >
             {isExpanded ? '▾' : '▸'}
           </button>
