@@ -49,6 +49,28 @@ export const api = {
   patch:  <T>(path: string, body: unknown)  => request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
   delete: <T>(path: string)                => request<T>(path, { method: 'DELETE' }),
   upload: <T>(path: string, form: FormData) => request<T>(path, { method: 'POST', body: form }),
+
+  download: async (path: string): Promise<void> => {
+    const token = localStorage.getItem('qaforge_token');
+    const res = await fetch(`${BASE_URL}${path}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: res.statusText }));
+      throw new ApiError(res.status, (body as { error?: string }).error ?? 'Export failed');
+    }
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const disposition = res.headers.get('Content-Disposition') ?? '';
+    const match = disposition.match(/filename="([^"]+)"/);
+    const a = document.createElement('a');
+    a.href     = url;
+    a.download = match?.[1] ?? 'export.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
 };
 
 export { ApiError };

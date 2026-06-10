@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
+import { buildExcelBuffer } from '../lib/excel.js';
 
 const CreateCaseSchema = z.object({
   title: z.string().min(1).max(500),
@@ -402,6 +403,28 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
     }
 
     return reply.code(201).send({ imported, skipped, errors });
+  });
+
+  // GET /projects/:projectId/cases/export — download active cases as Excel — viewer+
+  app.get('/:projectId/cases/export', { preHandler: requireRole('viewer') }, async (req, reply) => {
+    const { projectId } = req.params as { projectId: string };
+    const { suiteId, q } = req.query as { suiteId?: string; q?: string };
+
+    const cases = await prisma.testCase.findMany({
+      where: {
+        projectId,
+        archived: false,
+        ...(suiteId ? { suiteId } : {}),
+        ...(q ? { title: { contains: q, mode: 'insensitive' } } : {}),
+      },
+      select: { title: true, type: true, preconditions: true, steps: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const buf = buildExcelBuffer(cases);
+    reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    reply.header('Content-Disposition', 'attachment; filename="test-cases.xlsx"');
+    return reply.send(buf);
   });
 
   // GET /projects/:projectId/suites — viewer+

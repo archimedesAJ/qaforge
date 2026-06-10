@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
+import { buildExcelBuffer } from '../lib/excel.js';
 
 const CreateSetSchema = z.object({
   name:        z.string().min(1),
@@ -81,6 +82,37 @@ export const setsRoutes: FastifyPluginAsync = async (app) => {
     if (!set) return reply.code(404).send({ error: 'Test set not found' });
 
     return { ...set, cases: set.items.map(i => i.testCase) };
+  });
+
+  // GET /:projectId/sets/:setId/export — download set cases as Excel — viewer+
+  app.get('/:projectId/sets/:setId/export', { preHandler: requireRole('viewer') }, async (req, reply) => {
+    const { projectId, setId } = req.params as { projectId: string; setId: string };
+
+    const set = await prisma.testSet.findUnique({
+      where: { id: setId },
+      include: {
+        items: {
+          orderBy: { id: 'asc' },
+          include: {
+            testCase: {
+              select: { title: true, type: true, preconditions: true, steps: true, archived: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!set || set.projectId !== projectId) return reply.code(404).send({ error: 'Test set not found' });
+
+    const cases = set.items
+      .filter(item => !item.testCase.archived)
+      .map(item => item.testCase);
+
+    const buf = buildExcelBuffer(cases, set.name);
+    const safeName = set.name.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-') || 'test-set';
+    reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    reply.header('Content-Disposition', `attachment; filename="${safeName}.xlsx"`);
+    return reply.send(buf);
   });
 
   // PUT /:projectId/sets/:setId — update name / description

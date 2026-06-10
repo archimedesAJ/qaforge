@@ -149,6 +149,18 @@ export function CaseList({ projectId, suiteId, canEdit = true, onEdit, onNew }: 
           <span style={{ fontSize: '0.8125rem', color: 'var(--gray-400)' }}>
             {total} case{total !== 1 ? 's' : ''}
           </span>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              const p = new URLSearchParams();
+              if (suiteId) p.set('suiteId', suiteId);
+              if (search) p.set('q', search);
+              api.download(`projects/${projectId}/cases/export?${p}`).catch(() => {});
+            }}
+          >
+            Export Excel
+          </Button>
           {canEdit && <Button variant="secondary" size="sm" onClick={() => setShowImport(true)}>Import CSV</Button>}
           {canEdit && <Button variant="primary" size="sm" onClick={onNew}>+ New case</Button>}
         </div>

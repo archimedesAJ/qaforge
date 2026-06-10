@@ -176,6 +176,13 @@ export function TestSetsPanel({ projectId, canEdit }: Props) {
               {detail.cases.length} cases
             </span>
           )}
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => api.download(`projects/${projectId}/sets/${selectedSet.id}/export`).catch(() => {})}
+          >
+            Export Excel
+          </Button>
           {canEdit && (
             <>
               <Button variant="primary" size="sm" onClick={openPicker}>Edit cases</Button>
