@@ -56,12 +56,6 @@ export async function processDigest(): Promise<void> {
     const runsFailed = runsThisWeek.filter(r => r.status === 'failed').length;
     const runsOpen   = runsThisWeek.filter(r => r.status === 'open').length;
 
-    // Skip if nothing happened — no point sending an empty digest
-    const hasActivity =
-      runsThisWeek.length > 0 || newCases > 0 || newDefects > 0 || resolvedDefects > 0;
-
-    if (!hasActivity) continue;
-
     for (const user of recipients) {
       sendWeeklyDigestEmail({
         to:              user.email,
