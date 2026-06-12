@@ -67,13 +67,11 @@ export function AppLayout({ children, title, actions }: AppLayoutProps) {
           alignItems: 'center',
           gap: 10,
         }}>
-          <div style={{
-            width: 30, height: 30,
-            background: 'var(--color-primary)',
-            borderRadius: 7,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontWeight: 700, fontSize: '0.8rem', color: '#fff', letterSpacing: '0.05em',
-          }}>QF</div>
+          <img
+            src="/favicon.svg"
+            alt="QAForge"
+            style={{ width: 30, height: 30, borderRadius: 7 }}
+          />
           <span style={{ fontWeight: 700, fontSize: '1rem', color: '#fff' }}>QAForge</span>
         </div>
 
