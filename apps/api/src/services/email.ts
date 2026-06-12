@@ -167,6 +167,143 @@ export async function sendInviteEmail(opts: {
   }
 }
 
+export async function sendWeeklyDigestEmail(opts: {
+  to: string;
+  userName: string;
+  projectName: string;
+  projectId: string;
+  runsTotal: number;
+  runsPassed: number;
+  runsFailed: number;
+  runsOpen: number;
+  newCases: number;
+  newDefects: number;
+  resolvedDefects: number;
+  openDefectsCount: number;
+}): Promise<void> {
+  const projectLink = `${WEB_URL}/projects/${opts.projectId}`;
+  const weekLabel   = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  const subject     = `QAForge Weekly Digest — ${opts.projectName}`;
+
+  function statCard(value: number, label: string, color: string): string {
+    return `
+      <td align="center" style="padding:0 8px;">
+        <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px 20px;min-width:100px;">
+          <div style="font-size:26px;font-weight:700;color:${color};line-height:1;">${value}</div>
+          <div style="font-size:12px;color:#6b7280;margin-top:4px;white-space:nowrap;">${label}</div>
+        </div>
+      </td>`;
+  }
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" border="0"
+               style="background:#ffffff;border-radius:8px;max-width:600px;overflow:hidden;">
+
+          <!-- Header bar -->
+          <tr>
+            <td style="background:#2563eb;padding:24px 32px;">
+              <div style="font-size:13px;color:#bfdbfe;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">
+                QAForge · Weekly Digest
+              </div>
+              <div style="font-size:22px;font-weight:700;color:#ffffff;margin-top:4px;">
+                ${opts.projectName}
+              </div>
+              <div style="font-size:13px;color:#bfdbfe;margin-top:2px;">Week ending ${weekLabel}</div>
+            </td>
+          </tr>
+
+          <!-- Greeting -->
+          <tr>
+            <td style="padding:28px 32px 8px;">
+              <p style="margin:0;font-size:15px;color:#374151;line-height:1.6;">
+                Hi ${opts.userName}, here's what happened in
+                <strong>${opts.projectName}</strong> over the past 7 days.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Runs section -->
+          <tr>
+            <td style="padding:20px 32px 4px;">
+              <div style="font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;">
+                Test Runs
+              </div>
+              <table cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  ${statCard(opts.runsTotal,  'Total runs',  '#111827')}
+                  ${statCard(opts.runsPassed, 'Passed',      '#16a34a')}
+                  ${statCard(opts.runsFailed, 'Failed',      '#dc2626')}
+                  ${statCard(opts.runsOpen,   'In progress', '#d97706')}
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Cases + Defects section -->
+          <tr>
+            <td style="padding:20px 32px 4px;">
+              <div style="font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;">
+                Test Cases &amp; Defects
+              </div>
+              <table cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  ${statCard(opts.newCases,        'New cases',          '#2563eb')}
+                  ${statCard(opts.newDefects,       'New defects',        '#dc2626')}
+                  ${statCard(opts.resolvedDefects,  'Resolved this week', '#16a34a')}
+                  ${statCard(opts.openDefectsCount, 'Open defects total', '#6b7280')}
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- CTA -->
+          <tr>
+            <td align="left" style="padding:28px 32px 32px;">
+              <table cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td align="center" bgcolor="#2563eb" style="border-radius:6px;">
+                    <a href="${projectLink}"
+                       style="display:inline-block;padding:12px 28px;color:#ffffff;font-size:15px;
+                              font-weight:bold;text-decoration:none;border-radius:6px;">
+                      Open ${opts.projectName} →
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:16px 32px;">
+              <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.5;">
+                You're receiving this because you're an editor on
+                <strong>${opts.projectName}</strong> in QAForge.
+                Digests are sent every Monday morning.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  if (isConfigured) {
+    await sendViaMsGraph({ to: opts.to, subject, html });
+  } else {
+    console.log(`[digest] Azure AD not configured — digest for ${opts.projectName} → ${opts.to} (skipped)`);
+  }
+}
+
 export async function sendProjectAddedEmail(opts: {
   to: string;
   inviterName: string;

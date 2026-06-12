@@ -12,6 +12,7 @@ import { defectsRoutes } from './routes/defects.js';
 import { insightsRoutes } from './routes/insights.js';
 import { aiRoutes } from './routes/ai.js';
 import { uploadsRoutes } from './routes/uploads.js';
+import { startWeeklyDigest } from './jobs/weeklyDigest.js';
 
 const app = Fastify({
   logger: {
@@ -56,6 +57,7 @@ const port = Number(process.env.API_PORT) || 3001;
 try {
   await app.listen({ port, host: '0.0.0.0' });
   app.log.info(`QAForge API running on http://localhost:${port}`);
+  startWeeklyDigest();
 } catch (err) {
   app.log.error(err);
   process.exit(1);
