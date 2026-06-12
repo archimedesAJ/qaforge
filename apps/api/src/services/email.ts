@@ -233,14 +233,17 @@ export async function sendWeeklyDigestEmail(opts: {
           <!-- Runs section -->
           <tr>
             <td style="padding:20px 32px 4px;">
-              <div style="font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;">
+              <div style="font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">
                 Test Runs
+              </div>
+              <div style="font-size:12px;color:#9ca3af;margin-bottom:12px;">
+                How many runs were executed this period
               </div>
               <table cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  ${statCard(opts.runsTotal,   'Runs this week', '#111827')}
-                  ${statCard(opts.runsClosed,  'Completed',      '#2563eb')}
-                  ${statCard(opts.runsOpen,    'Still open',     '#d97706')}
+                  ${statCard(opts.runsTotal,  'Runs this period', '#111827')}
+                  ${statCard(opts.runsClosed, 'Completed',        '#2563eb')}
+                  ${statCard(opts.runsOpen,   'Still open',       '#d97706')}
                 </tr>
               </table>
             </td>
@@ -249,8 +252,11 @@ export async function sendWeeklyDigestEmail(opts: {
           <!-- Test results section -->
           <tr>
             <td style="padding:20px 32px 4px;">
-              <div style="font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;">
-                Test Case Results (across all runs)
+              <div style="font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">
+                Execution Results
+              </div>
+              <div style="font-size:12px;color:#9ca3af;margin-bottom:12px;">
+                Individual test case outcomes across all runs above — one case can run in multiple runs
               </div>
               <table cellpadding="0" cellspacing="0" border="0">
                 <tr>
@@ -262,17 +268,20 @@ export async function sendWeeklyDigestEmail(opts: {
             </td>
           </tr>
 
-          <!-- Cases + Defects section -->
+          <!-- Library + Defects section -->
           <tr>
             <td style="padding:20px 32px 4px;">
-              <div style="font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;">
-                Test Cases &amp; Defects
+              <div style="font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">
+                Test Library &amp; Defects
+              </div>
+              <div style="font-size:12px;color:#9ca3af;margin-bottom:12px;">
+                Changes to the test case library and defect tracker this period
               </div>
               <table cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  ${statCard(opts.newCases,        'New cases',          '#2563eb')}
-                  ${statCard(opts.newDefects,       'New defects',        '#dc2626')}
-                  ${statCard(opts.resolvedDefects,  'Resolved this week', '#16a34a')}
+                  ${statCard(opts.newCases,        'Cases written',      '#2563eb')}
+                  ${statCard(opts.newDefects,       'Defects filed',      '#dc2626')}
+                  ${statCard(opts.resolvedDefects,  'Defects resolved',   '#16a34a')}
                   ${statCard(opts.openDefectsCount, 'Open defects total', '#6b7280')}
                 </tr>
               </table>
