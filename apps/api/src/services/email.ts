@@ -173,9 +173,11 @@ export async function sendWeeklyDigestEmail(opts: {
   projectName: string;
   projectId: string;
   runsTotal: number;
-  runsPassed: number;
-  runsFailed: number;
   runsOpen: number;
+  runsClosed: number;
+  resultsPassed: number;
+  resultsFailed: number;
+  resultsBlocked: number;
   newCases: number;
   newDefects: number;
   resolvedDefects: number;
@@ -183,7 +185,7 @@ export async function sendWeeklyDigestEmail(opts: {
 }): Promise<void> {
   const projectLink = `${WEB_URL}/projects/${opts.projectId}`;
   const weekLabel   = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-  const subject     = `QAForge Weekly Digest — ${opts.projectName}`;
+  const subject     = `QAForge Digest — ${opts.projectName}`;
 
   function statCard(value: number, label: string, color: string): string {
     return `
@@ -209,7 +211,7 @@ export async function sendWeeklyDigestEmail(opts: {
           <tr>
             <td style="background:#2563eb;padding:24px 32px;">
               <div style="font-size:13px;color:#bfdbfe;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">
-                QAForge · Weekly Digest
+                QAForge · Project Digest
               </div>
               <div style="font-size:22px;font-weight:700;color:#ffffff;margin-top:4px;">
                 ${opts.projectName}
@@ -236,10 +238,25 @@ export async function sendWeeklyDigestEmail(opts: {
               </div>
               <table cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  ${statCard(opts.runsTotal,  'Total runs',  '#111827')}
-                  ${statCard(opts.runsPassed, 'Passed',      '#16a34a')}
-                  ${statCard(opts.runsFailed, 'Failed',      '#dc2626')}
-                  ${statCard(opts.runsOpen,   'In progress', '#d97706')}
+                  ${statCard(opts.runsTotal,   'Runs this week', '#111827')}
+                  ${statCard(opts.runsClosed,  'Completed',      '#2563eb')}
+                  ${statCard(opts.runsOpen,    'Still open',     '#d97706')}
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Test results section -->
+          <tr>
+            <td style="padding:20px 32px 4px;">
+              <div style="font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;">
+                Test Case Results (across all runs)
+              </div>
+              <table cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  ${statCard(opts.resultsPassed,  'Passed',  '#16a34a')}
+                  ${statCard(opts.resultsFailed,  'Failed',  '#dc2626')}
+                  ${statCard(opts.resultsBlocked, 'Blocked', '#d97706')}
                 </tr>
               </table>
             </td>
@@ -285,7 +302,7 @@ export async function sendWeeklyDigestEmail(opts: {
               <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.5;">
                 You're receiving this because you're an editor on
                 <strong>${opts.projectName}</strong> in QAForge.
-                Digests are sent every Monday morning.
+                Digests are sent every Monday and Friday.
               </p>
             </td>
           </tr>

@@ -27,13 +27,26 @@ export async function processDigest(): Promise<void> {
 
     if (recipients.length === 0) continue;
 
-    // Parallel queries for the week's stats
-    const [runsThisWeek, newCases, newDefects, resolvedDefects, openDefectsCount] =
+    // Fetch runs started this week so we can aggregate their results
+    const runsThisWeek = await prisma.testRun.findMany({
+      where: { projectId: project.id, startedAt: { gte: since } },
+      select: { id: true, status: true },
+    });
+
+    const runIds       = runsThisWeek.map(r => r.id);
+    const runsOpen     = runsThisWeek.filter(r => r.status === 'open').length;
+    const runsClosed   = runsThisWeek.filter(r => r.status === 'closed').length;
+
+    // Aggregate individual test-case results across all runs this week
+    const [resultGroups, newCases, newDefects, resolvedDefects, openDefectsCount] =
       await Promise.all([
-        prisma.testRun.findMany({
-          where: { projectId: project.id, startedAt: { gte: since } },
-          select: { status: true },
-        }),
+        runIds.length > 0
+          ? prisma.runResult.groupBy({
+              by: ['status'],
+              where: { runId: { in: runIds } },
+              _count: { id: true },
+            })
+          : Promise.resolve([]),
         prisma.testCase.count({
           where: { projectId: project.id, archived: false, createdAt: { gte: since } },
         }),
@@ -52,9 +65,13 @@ export async function processDigest(): Promise<void> {
         }),
       ]);
 
-    const runsPassed = runsThisWeek.filter(r => r.status === 'passed').length;
-    const runsFailed = runsThisWeek.filter(r => r.status === 'failed').length;
-    const runsOpen   = runsThisWeek.filter(r => r.status === 'open').length;
+    // Map grouped counts by status
+    const resultMap = Object.fromEntries(
+      resultGroups.map((g: { status: string; _count: { id: number } }) => [g.status, g._count.id])
+    );
+    const resultsPassed  = resultMap['pass']    ?? 0;
+    const resultsFailed  = resultMap['fail']    ?? 0;
+    const resultsBlocked = resultMap['blocked'] ?? 0;
 
     for (const user of recipients) {
       sendWeeklyDigestEmail({
@@ -63,9 +80,11 @@ export async function processDigest(): Promise<void> {
         projectName:     project.name,
         projectId:       project.id,
         runsTotal:       runsThisWeek.length,
-        runsPassed,
-        runsFailed,
         runsOpen,
+        runsClosed,
+        resultsPassed,
+        resultsFailed,
+        resultsBlocked,
         newCases,
         newDefects,
         resolvedDefects,
@@ -88,9 +107,10 @@ export function startWeeklyDigest(): void {
   const queue = new Queue('weekly-digest', { connection });
 
   // Register the cron schedule — upsertJobScheduler is idempotent
+  // Fires every Monday and Friday at 08:00 UTC
   queue.upsertJobScheduler(
-    'weekly-monday-8am',
-    { pattern: '0 8 * * 1' },    // Every Monday at 08:00 UTC
+    'biweekly-mon-fri-8am',
+    { pattern: '0 8 * * 1,5' },
     { name: 'digest', data: {} }
   ).catch(err => console.error('[digest] failed to register scheduler:', err));
 
