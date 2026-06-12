@@ -5,7 +5,7 @@ import { sendWeeklyDigestEmail } from '../services/email.js';
 
 const REDIS_URL = process.env.REDIS_URL;
 
-async function processDigest(): Promise<void> {
+export async function processDigest(): Promise<void> {
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
   // Load all projects with their non-viewer members (activated users only)

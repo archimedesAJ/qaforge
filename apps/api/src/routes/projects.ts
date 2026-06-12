@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { sendInviteEmail, sendProjectAddedEmail } from '../services/email.js';
+import { processDigest } from '../jobs/weeklyDigest.js';
 
 const CreateProjectSchema = z.object({
   name: z.string().min(1).max(100),
@@ -287,6 +288,19 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
       })),
       recentRuns,
     };
+  });
+
+  // POST /sysadmin/digest/trigger — fire the weekly digest immediately (sysadmin only)
+  app.post('/sysadmin/digest/trigger', async (req, reply) => {
+    const caller = (req as unknown as { isSystemAdmin?: boolean });
+    if (!caller.isSystemAdmin) return reply.code(403).send({ error: 'System admin access required' });
+
+    // Run in the background so the HTTP response returns immediately
+    processDigest()
+      .then(() => app.log.info('[digest] manual trigger completed'))
+      .catch(err => app.log.error('[digest] manual trigger failed:', err));
+
+    return reply.code(202).send({ status: 'running', message: 'Digest job started — check server logs and your inbox.' });
   });
 
   // GET /sysadmin/users — list all users with their project memberships (sysadmin only)
