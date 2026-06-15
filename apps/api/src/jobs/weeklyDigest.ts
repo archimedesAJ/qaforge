@@ -1,14 +1,9 @@
-import { Queue, Worker } from 'bullmq';
-import { Redis as IORedis } from 'ioredis';
 import { prisma } from '../lib/prisma.js';
 import { sendWeeklyDigestEmail } from '../services/email.js';
-
-const REDIS_URL = process.env.REDIS_URL;
 
 export async function processDigest(): Promise<void> {
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-  // Load all projects with their non-viewer members (activated users only)
   const projects = await prisma.project.findMany({
     include: {
       members: {
@@ -27,17 +22,15 @@ export async function processDigest(): Promise<void> {
 
     if (recipients.length === 0) continue;
 
-    // Fetch runs started this week so we can aggregate their results
     const runsThisWeek = await prisma.testRun.findMany({
       where: { projectId: project.id, startedAt: { gte: since } },
       select: { id: true, status: true },
     });
 
-    const runIds       = runsThisWeek.map(r => r.id);
-    const runsOpen     = runsThisWeek.filter(r => r.status === 'open').length;
-    const runsClosed   = runsThisWeek.filter(r => r.status === 'closed').length;
+    const runIds     = runsThisWeek.map(r => r.id);
+    const runsOpen   = runsThisWeek.filter(r => r.status === 'open').length;
+    const runsClosed = runsThisWeek.filter(r => r.status === 'closed').length;
 
-    // Aggregate individual test-case results across all runs this week
     const [resultGroups, newCases, newDefects, resolvedDefects, openDefectsCount] =
       await Promise.all([
         runIds.length > 0
@@ -65,13 +58,9 @@ export async function processDigest(): Promise<void> {
         }),
       ]);
 
-    // Map grouped counts by status
     const resultMap = Object.fromEntries(
       resultGroups.map((g: { status: string; _count: { id: number } }) => [g.status, g._count.id])
     );
-    const resultsPassed  = resultMap['pass']    ?? 0;
-    const resultsFailed  = resultMap['fail']    ?? 0;
-    const resultsBlocked = resultMap['blocked'] ?? 0;
 
     for (const user of recipients) {
       sendWeeklyDigestEmail({
@@ -82,9 +71,9 @@ export async function processDigest(): Promise<void> {
         runsTotal:       runsThisWeek.length,
         runsOpen,
         runsClosed,
-        resultsPassed,
-        resultsFailed,
-        resultsBlocked,
+        resultsPassed:   resultMap['pass']    ?? 0,
+        resultsFailed:   resultMap['fail']    ?? 0,
+        resultsBlocked:  resultMap['blocked'] ?? 0,
         newCases,
         newDefects,
         resolvedDefects,
@@ -96,26 +85,47 @@ export async function processDigest(): Promise<void> {
   }
 }
 
-export function startWeeklyDigest(): void {
-  if (!REDIS_URL) {
-    console.log('[digest] REDIS_URL not set — weekly digest job will not run');
-    return;
+// Returns milliseconds until the next Monday or Friday at 08:00 UTC
+function msUntilNextRun(): number {
+  const now = new Date();
+  const RUN_DAYS = [1, 5]; // Monday, Friday (UTC day index)
+  const RUN_HOUR = 8;
+
+  let earliest = Infinity;
+
+  for (const day of RUN_DAYS) {
+    const target = new Date(now);
+    target.setUTCHours(RUN_HOUR, 0, 0, 0);
+
+    let daysAhead = (day - now.getUTCDay() + 7) % 7;
+    // If it's the right day but the time has already passed, push to next week
+    if (daysAhead === 0 && now.getTime() >= target.getTime()) daysAhead = 7;
+    target.setUTCDate(target.getUTCDate() + daysAhead);
+
+    const ms = target.getTime() - now.getTime();
+    if (ms < earliest) earliest = ms;
   }
 
-  const connection = new IORedis(REDIS_URL, { maxRetriesPerRequest: null });
+  return earliest;
+}
 
-  const queue = new Queue('weekly-digest', { connection });
+function scheduleNext(): void {
+  const ms = msUntilNextRun();
+  const hours = Math.round(ms / 3_600_000);
+  console.log(`[digest] next run in ~${hours}h (${new Date(Date.now() + ms).toUTCString()})`);
 
-  // Register the cron schedule — upsertJobScheduler is idempotent
-  // Fires every Monday and Friday at 08:00 UTC
-  queue.upsertJobScheduler(
-    'biweekly-mon-fri-8am',
-    { pattern: '0 8 * * 1,5' },
-    { name: 'digest', data: {} }
-  ).catch(err => console.error('[digest] failed to register scheduler:', err));
+  setTimeout(async () => {
+    console.log('[digest] running scheduled digest');
+    try {
+      await processDigest();
+      console.log('[digest] completed');
+    } catch (err) {
+      console.error('[digest] failed:', err);
+    }
+    scheduleNext(); // Queue the next occurrence immediately after
+  }, ms);
+}
 
-  const worker = new Worker('weekly-digest', processDigest, { connection });
-
-  worker.on('completed', () => console.log('[digest] weekly digest run completed'));
-  worker.on('failed', (_, err) => console.error('[digest] weekly digest run failed:', err));
+export function startWeeklyDigest(): void {
+  scheduleNext();
 }
