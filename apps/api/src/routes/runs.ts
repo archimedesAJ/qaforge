@@ -59,7 +59,7 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
     const { runId } = req.params as { projectId: string; runId: string };
     const runCases = await prisma.runCase.findMany({
       where: { runId },
-      include: { testCase: { select: { id: true, title: true, type: true, priority: true, suiteId: true, steps: true, tags: true } } },
+      include: { testCase: { select: { id: true, title: true, type: true, priority: true, suiteId: true, steps: true, tags: true, preconditions: true } } },
       orderBy: { id: 'asc' },
     });
     return { runCases };
@@ -108,6 +108,52 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
     }
 
     return updated;
+  });
+
+  // PUT /:projectId/runs/:runId/cases/:caseId/edit — create new TC version, update run references — editor+
+  app.put('/:projectId/runs/:runId/cases/:caseId/edit', { preHandler: requireRole('editor') }, async (req, reply) => {
+    const { projectId, runId, caseId } = req.params as { projectId: string; runId: string; caseId: string };
+    const { userId } = req.user as { userId: string };
+
+    const existing = await prisma.testCase.findUnique({ where: { id: caseId } });
+    if (!existing || existing.projectId !== projectId) return reply.code(404).send({ error: 'Test case not found' });
+
+    const body = req.body as { title?: string; preconditions?: string | null; steps?: unknown };
+
+    // Archive old version
+    await prisma.testCase.update({ where: { id: caseId }, data: { archived: true } });
+
+    // Create new version
+    const newCase = await prisma.testCase.create({
+      data: {
+        projectId,
+        lineageId: (existing as unknown as { lineageId?: string }).lineageId ?? existing.id,
+        title: (body.title ?? existing.title).trim(),
+        type: existing.type as string,
+        priority: existing.priority as string,
+        suiteId: existing.suiteId,
+        tags: existing.tags as object | undefined,
+        steps: (body.steps !== undefined ? body.steps : existing.steps) as object | undefined,
+        preconditions: body.preconditions !== undefined ? (body.preconditions || null) : existing.preconditions,
+        version: existing.version + 1,
+        createdById: userId,
+        archived: false,
+      },
+    });
+
+    // Redirect RunCase to new test case id
+    await prisma.runCase.update({
+      where: { runId_testCaseId: { runId, testCaseId: caseId } },
+      data: { testCaseId: newCase.id },
+    });
+
+    // Redirect any RunResults in this run to the new test case id
+    await prisma.runResult.updateMany({
+      where: { runId, testCaseId: caseId },
+      data: { testCaseId: newCase.id, testCaseVersion: newCase.version },
+    });
+
+    return newCase;
   });
 
   // GET /projects/:projectId/runs — viewer+

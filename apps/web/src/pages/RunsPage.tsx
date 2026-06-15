@@ -21,7 +21,7 @@ interface RunCase {
   runId: string;
   testCaseId: string;
   status: string;
-  testCase: { id: string; title: string; type: string; priority: string; suiteId: string | null; steps?: unknown; tags?: unknown };
+  testCase: { id: string; title: string; type: string; priority: string; suiteId: string | null; steps?: unknown; tags?: unknown; preconditions?: string | null };
 }
 
 const TYPE_LABELS: Record<TestType, string> = {
@@ -58,6 +58,12 @@ export function RunsPage() {
   const [caseSearch, setCaseSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showSetPicker, setShowSetPicker] = useState(false);
+
+  // Edit-in-run modal state
+  const [editingRunCase, setEditingRunCase] = useState<RunCase | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editPreconditions, setEditPreconditions] = useState('');
+  const [editSteps, setEditSteps] = useState<Array<{ action: string; expected: string }>>([]);
 
   const { isEditor, canExecute } = useProjectRole(projectId);
 
@@ -125,6 +131,15 @@ export function RunsPage() {
     },
   });
 
+  const editCaseMutation = useMutation({
+    mutationFn: ({ caseId, body }: { caseId: string; body: unknown }) =>
+      api.put(`projects/${projectId}/runs/${pendingRun!.id}/cases/${caseId}/edit`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['run-cases', pendingRun?.id] });
+      setEditingRunCase(null);
+    },
+  });
+
   const runs     = runsData?.runs ?? [];
   const allCases = allCasesData?.data ?? [];
   const runCases = runCasesData?.runCases ?? [];
@@ -170,6 +185,37 @@ export function RunsPage() {
     qc.invalidateQueries({ queryKey: ['run-cases', pendingRun?.id] });
     setView('execute');
     setActiveCase(null);
+  }
+
+  function openEditModal(rc: RunCase) {
+    setEditingRunCase(rc);
+    setEditTitle(rc.testCase.title);
+    setEditPreconditions(rc.testCase.preconditions ?? '');
+    const isStepType = ['manual', 'functional'].includes(rc.testCase.type);
+    if (isStepType) {
+      const raw = Array.isArray(rc.testCase.steps) ? rc.testCase.steps as Record<string, unknown>[] : [];
+      setEditSteps(raw.map(s => ({
+        action:   typeof s.action   === 'string' ? s.action   : '',
+        expected: typeof s.expected === 'string' ? s.expected : '',
+      })));
+    } else {
+      setEditSteps([]);
+    }
+  }
+
+  function handleEditSave() {
+    if (!editingRunCase || editCaseMutation.isPending) return;
+    const isStepType = ['manual', 'functional'].includes(editingRunCase.testCase.type);
+    const body: Record<string, unknown> = {
+      title: editTitle.trim(),
+      preconditions: editPreconditions.trim() || null,
+    };
+    if (isStepType) {
+      body.steps = editSteps
+        .filter(s => s.action.trim())
+        .map((s, i) => ({ order: i + 1, action: s.action.trim(), expected: s.expected.trim() }));
+    }
+    editCaseMutation.mutate({ caseId: editingRunCase.testCase.id, body });
   }
 
   // ── Run view ────────────────────────────────────────────────
@@ -707,6 +753,22 @@ export function RunsPage() {
                           {rc.status === 'not_run' ? '▶ Run' : '↺ Re-run'}
                         </Button>
                       )}
+
+                      {/* Edit button — editors only */}
+                      {isEditor && (
+                        <button
+                          title="Edit test case"
+                          onClick={() => openEditModal(rc)}
+                          style={{
+                            background: 'none', border: '1px solid var(--border-color)',
+                            borderRadius: 4, padding: '3px 7px', cursor: 'pointer',
+                            color: 'var(--gray-400)', fontSize: '0.875rem', flexShrink: 0,
+                            lineHeight: 1,
+                          }}
+                        >
+                          ✎
+                        </button>
+                      )}
                     </div>
                   );
                 })}
@@ -714,6 +776,130 @@ export function RunsPage() {
             </div>
           </div>
         </div>
+
+        {/* Edit test case modal */}
+        <Modal
+          open={!!editingRunCase}
+          onClose={() => setEditingRunCase(null)}
+          title="Edit test case"
+          footer={
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <Button variant="secondary" onClick={() => setEditingRunCase(null)}>Cancel</Button>
+              <Button variant="primary" loading={editCaseMutation.isPending} onClick={handleEditSave}>
+                Save new version
+              </Button>
+            </div>
+          }
+        >
+          <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: 'var(--gray-500)' }}>
+            Changes create a new version and update this run automatically.
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* Title */}
+            <div>
+              <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--gray-700)', marginBottom: 4 }}>
+                Title
+              </label>
+              <Input value={editTitle} onChange={e => setEditTitle(e.target.value)} placeholder="Test case title" />
+            </div>
+
+            {/* Preconditions */}
+            <div>
+              <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--gray-700)', marginBottom: 4 }}>
+                Preconditions
+              </label>
+              <textarea
+                value={editPreconditions}
+                onChange={e => setEditPreconditions(e.target.value)}
+                placeholder="What must be true before this test runs…"
+                rows={2}
+                style={{
+                  width: '100%', padding: '8px 10px', border: '1px solid var(--border-color)',
+                  borderRadius: 6, fontSize: '0.875rem', resize: 'vertical', outline: 'none',
+                  background: 'var(--surface-base)', color: 'var(--gray-900)', boxSizing: 'border-box',
+                }}
+              />
+            </div>
+
+            {/* Steps editor — manual / functional only */}
+            {editingRunCase && ['manual', 'functional'].includes(editingRunCase.testCase.type) && (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--gray-700)' }}>Steps</label>
+                  <button
+                    onClick={() => setEditSteps(prev => [...prev, { action: '', expected: '' }])}
+                    style={{
+                      fontSize: '0.8125rem', color: 'var(--color-primary)', background: 'none',
+                      border: 'none', cursor: 'pointer', fontWeight: 600, padding: '2px 4px',
+                    }}
+                  >
+                    + Add step
+                  </button>
+                </div>
+
+                {editSteps.length === 0 && (
+                  <div style={{ fontSize: '0.8125rem', color: 'var(--gray-400)', padding: '8px 0' }}>
+                    No steps yet — click "+ Add step" to begin.
+                  </div>
+                )}
+
+                {editSteps.map((step, i) => (
+                  <div key={i} style={{
+                    display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 6,
+                    marginBottom: 6, alignItems: 'flex-start',
+                  }}>
+                    <div>
+                      {i === 0 && (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', marginBottom: 3 }}>Action</div>
+                      )}
+                      <textarea
+                        value={step.action}
+                        onChange={e => setEditSteps(prev => prev.map((s, j) => j === i ? { ...s, action: e.target.value } : s))}
+                        placeholder={`Step ${i + 1} action…`}
+                        rows={2}
+                        style={{
+                          width: '100%', padding: '6px 8px', border: '1px solid var(--border-color)',
+                          borderRadius: 5, fontSize: '0.8125rem', resize: 'vertical', outline: 'none',
+                          background: 'var(--surface-base)', color: 'var(--gray-900)', boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+                    <div>
+                      {i === 0 && (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', marginBottom: 3 }}>Expected result</div>
+                      )}
+                      <textarea
+                        value={step.expected}
+                        onChange={e => setEditSteps(prev => prev.map((s, j) => j === i ? { ...s, expected: e.target.value } : s))}
+                        placeholder="Expected result…"
+                        rows={2}
+                        style={{
+                          width: '100%', padding: '6px 8px', border: '1px solid var(--border-color)',
+                          borderRadius: 5, fontSize: '0.8125rem', resize: 'vertical', outline: 'none',
+                          background: 'var(--surface-base)', color: 'var(--gray-900)', boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+                    <div style={{ paddingTop: i === 0 ? 18 : 0 }}>
+                      <button
+                        onClick={() => setEditSteps(prev => prev.filter((_, j) => j !== i))}
+                        title="Remove step"
+                        style={{
+                          background: 'none', border: '1px solid #fca5a5', borderRadius: 4,
+                          color: '#dc2626', cursor: 'pointer', padding: '5px 7px', fontSize: '0.875rem',
+                          lineHeight: 1,
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Modal>
       </AppLayout>
     );
   }
