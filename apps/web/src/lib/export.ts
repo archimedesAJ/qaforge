@@ -66,7 +66,8 @@ interface RunSummary {
 export async function exportResultsPdf(
   run:     RunMeta,
   results: RunResultRow[],
-  summary: RunSummary
+  summary: RunSummary,
+  overrides?: { executiveSummary?: string }
 ): Promise<void> {
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -207,7 +208,7 @@ export async function exportResultsPdf(
   doc.text('Executive Summary', MARGIN, y);
   y += 5;
 
-  const execText  = buildExecutiveSummary(run, summary);
+  const execText  = overrides?.executiveSummary ?? buildExecutiveSummary(run, summary);
   const execLines = doc.splitTextToSize(execText, COL_W);
   doc.setFontSize(8.5);
   doc.setFont('helvetica', 'normal');
@@ -353,7 +354,7 @@ function createDonutChart(summary: RunSummary): string {
 
 // ── Executive summary ─────────────────────────────────────────
 
-function buildExecutiveSummary(run: RunMeta, summary: RunSummary): string {
+export function buildExecutiveSummary(run: RunMeta, summary: RunSummary): string {
   const { passRate, total, passed, failed, blocked, skipped } = summary;
   const dateStr = new Date(run.startedAt).toLocaleDateString('en-GB', {
     day: 'numeric', month: 'long', year: 'numeric',

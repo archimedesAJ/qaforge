@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, Modal, Input, Select, Spinner, EmptyState, StatCard, Alert } from '../shared/ui';
 import { api } from '../../lib/api';
-import { exportResultsCsv, exportResultsPdf } from '../../lib/export';
+import { exportResultsCsv, exportResultsPdf, buildExecutiveSummary } from '../../lib/export';
 
 interface Defect {
   id: string;
@@ -74,6 +74,10 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [exporting, setExporting] = useState(false);
+
+  // Executive summary edit modal
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [summaryText, setSummaryText] = useState('');
 
   // Defect filing state
   const [filingFor, setFilingFor] = useState<RunResult | null>(null);
@@ -207,26 +211,21 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
           </Button>
           <Button
             variant="secondary" size="sm"
-            loading={exporting}
-            onClick={async () => {
-              setExporting(true);
-              try {
-                await exportResultsPdf(
-                  {
-                    name:        runDetail?.name ?? runName,
-                    env:         runDetail?.env ?? '',
-                    source:      runDetail?.source ?? '',
-                    startedAt:   runDetail?.startedAt ?? new Date().toISOString(),
-                    endedAt:     runDetail?.endedAt,
-                    reporter:    runDetail?.reporterName ?? undefined,
-                    projectName: runDetail?.projectName,
-                  },
-                  results as Parameters<typeof exportResultsPdf>[1],
-                  { total, passed, failed, blocked, skipped, passRate }
-                );
-              } finally {
-                setExporting(false);
-              }
+            onClick={() => {
+              const defaultText = buildExecutiveSummary(
+                {
+                  name:        runDetail?.name ?? runName,
+                  env:         runDetail?.env ?? '',
+                  source:      runDetail?.source ?? '',
+                  startedAt:   runDetail?.startedAt ?? new Date().toISOString(),
+                  endedAt:     runDetail?.endedAt,
+                  reporter:    runDetail?.reporterName ?? undefined,
+                  projectName: runDetail?.projectName,
+                },
+                { total, passed, failed, blocked, skipped, passRate }
+              );
+              setSummaryText(defaultText);
+              setShowSummaryModal(true);
             }}
           >
             ↓ PDF
@@ -724,6 +723,61 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
           value={defectNotes}
           onChange={e => setDefectNotes(e.target.value)}
           placeholder="Any additional context"
+        />
+      </Modal>
+
+      {/* Executive summary edit modal */}
+      <Modal
+        open={showSummaryModal}
+        onClose={() => setShowSummaryModal(false)}
+        title="Executive summary"
+        footer={
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Button variant="secondary" onClick={() => setShowSummaryModal(false)}>Cancel</Button>
+            <Button
+              variant="primary"
+              loading={exporting}
+              onClick={async () => {
+                setExporting(true);
+                try {
+                  await exportResultsPdf(
+                    {
+                      name:        runDetail?.name ?? runName,
+                      env:         runDetail?.env ?? '',
+                      source:      runDetail?.source ?? '',
+                      startedAt:   runDetail?.startedAt ?? new Date().toISOString(),
+                      endedAt:     runDetail?.endedAt,
+                      reporter:    runDetail?.reporterName ?? undefined,
+                      projectName: runDetail?.projectName,
+                    },
+                    results as Parameters<typeof exportResultsPdf>[1],
+                    { total, passed, failed, blocked, skipped, passRate },
+                    { executiveSummary: summaryText }
+                  );
+                  setShowSummaryModal(false);
+                } finally {
+                  setExporting(false);
+                }
+              }}
+            >
+              ↓ Export PDF
+            </Button>
+          </div>
+        }
+      >
+        <p style={{ margin: '0 0 10px', fontSize: '0.8125rem', color: 'var(--gray-500)' }}>
+          Review and edit the auto-generated summary before exporting.
+        </p>
+        <textarea
+          value={summaryText}
+          onChange={e => setSummaryText(e.target.value)}
+          rows={7}
+          style={{
+            width: '100%', padding: '10px 12px',
+            border: '1px solid var(--border-color)', borderRadius: 6,
+            fontSize: '0.875rem', lineHeight: 1.6, resize: 'vertical', outline: 'none',
+            background: 'var(--surface-base)', color: 'var(--gray-900)', boxSizing: 'border-box',
+          }}
         />
       </Modal>
     </div>
