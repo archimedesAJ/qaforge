@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { AppLayout } from '../components/shared/AppLayout';
@@ -72,6 +73,32 @@ function fmt(dateStr: string) {
   });
 }
 
+type DatePreset = '7d' | '30d' | '90d' | 'month' | 'quarter' | 'all';
+
+const DATE_PRESETS: Array<{ key: DatePreset; label: string }> = [
+  { key: '7d',      label: 'Last 7 days'  },
+  { key: '30d',     label: 'Last 30 days' },
+  { key: '90d',     label: 'Last 90 days' },
+  { key: 'month',   label: 'This month'   },
+  { key: 'quarter', label: 'This quarter' },
+  { key: 'all',     label: 'All time'     },
+];
+
+function getDateRange(preset: DatePreset): { since: string | null; until: string | null } {
+  if (preset === 'all') return { since: null, until: null };
+  const now   = new Date();
+  const until = now.toISOString();
+  if (preset === '7d')   return { since: new Date(now.getTime() - 7  * 86_400_000).toISOString(), until };
+  if (preset === '30d')  return { since: new Date(now.getTime() - 30 * 86_400_000).toISOString(), until };
+  if (preset === '90d')  return { since: new Date(now.getTime() - 90 * 86_400_000).toISOString(), until };
+  if (preset === 'month') {
+    return { since: new Date(now.getFullYear(), now.getMonth(), 1).toISOString(), until };
+  }
+  // quarter
+  const q = Math.floor(now.getMonth() / 3);
+  return { since: new Date(now.getFullYear(), q * 3, 1).toISOString(), until };
+}
+
 function kpiColor(value: number | null, thresholds: [number, number]): string {
   if (value === null) return 'var(--gray-400)';
   if (value >= thresholds[0]) return 'var(--color-success)';
@@ -93,10 +120,18 @@ function fmtRelative(dateStr: string) {
 
 export function AdminDashboardPage() {
   const navigate = useNavigate();
+  const [datePreset, setDatePreset] = useState<DatePreset>('30d');
 
   const { data, isLoading } = useQuery({
-    queryKey: ['sysadmin-overview'],
-    queryFn: () => api.get<OverviewData>('projects/sysadmin/overview'),
+    queryKey: ['sysadmin-overview', datePreset],
+    queryFn: () => {
+      const { since, until } = getDateRange(datePreset);
+      const params = new URLSearchParams();
+      if (since) params.set('since', since);
+      if (until) params.set('until', until);
+      const qs = params.toString();
+      return api.get<OverviewData>(`projects/sysadmin/overview${qs ? `?${qs}` : ''}`);
+    },
   });
 
   const stats    = data?.stats;
@@ -117,7 +152,31 @@ export function AdminDashboardPage() {
           </div>
         </div>
 
-        {isLoading && (
+        {/* Date range picker */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24 }}>
+          <span style={{ fontSize: '0.8125rem', color: 'var(--gray-500)', fontWeight: 500, marginRight: 4 }}>
+            KPI period:
+          </span>
+          {DATE_PRESETS.map(p => (
+            <button
+              key={p.key}
+              onClick={() => setDatePreset(p.key)}
+              style={{
+                padding: '5px 14px', borderRadius: 20, fontSize: '0.8125rem', fontWeight: 500,
+                cursor: 'pointer', border: '1px solid',
+                borderColor: datePreset === p.key ? 'var(--color-primary)' : 'var(--border-color)',
+                background:  datePreset === p.key ? 'var(--color-primary-light)' : 'var(--surface-base)',
+                color:       datePreset === p.key ? 'var(--color-primary)' : 'var(--gray-600)',
+                transition: 'all 0.15s',
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+          {isLoading && <Spinner size="sm" />}
+        </div>
+
+        {isLoading && !data && (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
             <Spinner size="lg" />
           </div>

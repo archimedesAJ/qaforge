@@ -227,14 +227,20 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
   });
 
   // GET /sysadmin/overview — system-wide stats and per-project health (sysadmin only)
+  // Optional query params: since=<ISO> &until=<ISO> for date-bounded KPI metrics
   app.get('/sysadmin/overview', async (req, reply) => {
     const caller = (req as unknown as { isSystemAdmin?: boolean });
     if (!caller.isSystemAdmin) return reply.code(403).send({ error: 'System admin access required' });
 
+    const { since, until } = req.query as { since?: string; until?: string };
+    const sinceDate    = since ? new Date(since) : null;
+    const untilDate    = until ? new Date(until) : null;
+    const isDateBounded = !!(sinceDate && untilDate);
+
+    // ── Base queries (always run, unaffected by date range) ──────
     const [
       totalUsers, activatedUsers, projects, recentRuns,
-      openDefectsGroups, openRunsCount,
-      coverageStateGroups, flakyGroups, passRateGroups, executedCasesGroups,
+      openDefectsGroups, openRunsCount, flakyGroups,
     ] = await Promise.all([
       prisma.user.count(),
       prisma.user.count({ where: { activated: true } }),
@@ -263,54 +269,88 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         _count: { id: true },
       }),
       prisma.testRun.count({ where: { status: 'open' } }),
-      // Coverage state counts per project (used for failing/stale sub-labels)
-      prisma.coverageSnapshot.groupBy({
-        by: ['projectId', 'state'],
-        _count: { testCaseId: true },
-      }),
-      // Flaky test count per project
+      // Flakiness is always current-state — date-filtering it is not meaningful
       prisma.flakinessScore.groupBy({
         by: ['projectId'],
         where: { score: { gt: 0 } },
         _count: { id: true },
-      }),
-      // Average per-case pass rate per project (0–1 float)
-      prisma.coverageSnapshot.groupBy({
-        by: ['projectId'],
-        where: { passRate: { not: null } },
-        _avg: { passRate: true },
-      }),
-      // Execution coverage: cases executed at least once (lastRunAt IS NOT NULL)
-      prisma.coverageSnapshot.groupBy({
-        by: ['projectId'],
-        where: { lastRunAt: { not: null } },
-        _count: { testCaseId: true },
       }),
     ]);
 
     const openDefectsMap: Record<string, number> = {};
     for (const g of openDefectsGroups) openDefectsMap[g.projectId] = g._count.id;
 
-    // Build per-project coverage state map
-    const covStateMap: Record<string, { healthy: number; stale: number; failing: number }> = {};
-    for (const g of coverageStateGroups) {
-      if (!covStateMap[g.projectId]) covStateMap[g.projectId] = { healthy: 0, stale: 0, failing: 0 };
-      const state = g.state as 'healthy' | 'stale' | 'failing';
-      if (state in covStateMap[g.projectId]) covStateMap[g.projectId][state] = g._count.testCaseId;
-    }
-
     const flakyMap: Record<string, number> = {};
     for (const g of flakyGroups) flakyMap[g.projectId] = g._count.id;
 
-    const passRateMap: Record<string, number | null> = {};
-    for (const g of passRateGroups) {
-      passRateMap[g.projectId] = g._avg.passRate != null
-        ? Math.round(g._avg.passRate * 100)
-        : null;
-    }
+    // ── KPI queries — date-bounded live OR pre-aggregated snapshot ──
+    let covStateMap:     Record<string, { healthy: number; stale: number; failing: number }> = {};
+    let passRateMap:     Record<string, number | null> = {};
+    let executedCasesMap: Record<string, number> = {};
 
-    const executedCasesMap: Record<string, number> = {};
-    for (const g of executedCasesGroups) executedCasesMap[g.projectId] = g._count.testCaseId;
+    if (isDateBounded) {
+      // Fetch every RunResult in the period and compute all three maps in JS
+      const periodResults = await prisma.runResult.findMany({
+        where: { executedAt: { gte: sinceDate!, lte: untilDate! } },
+        select: { testCaseId: true, status: true, run: { select: { projectId: true } } },
+      });
+
+      // Group: projectId → testCaseId → {pass, total}
+      const pcMap: Record<string, Record<string, { pass: number; total: number }>> = {};
+      for (const r of periodResults) {
+        const pid  = r.run.projectId;
+        const tcid = r.testCaseId;
+        if (!pcMap[pid])       pcMap[pid] = {};
+        if (!pcMap[pid][tcid]) pcMap[pid][tcid] = { pass: 0, total: 0 };
+        pcMap[pid][tcid].total++;
+        if (r.status === 'pass') pcMap[pid][tcid].pass++;
+      }
+
+      for (const [pid, casesMap] of Object.entries(pcMap)) {
+        const entries  = Object.values(casesMap);
+        const executed = entries.length;
+        const healthy  = entries.filter(e => e.pass / e.total >= 0.8).length;
+        const failing  = executed - healthy;
+        const project  = projects.find(p => p.id === pid);
+        const stale    = Math.max(0, (project?._count.cases ?? 0) - executed);
+
+        covStateMap[pid]      = { healthy, stale, failing };
+        executedCasesMap[pid] = executed;
+        passRateMap[pid]      = Math.round(
+          (entries.reduce((s, e) => s + e.pass / e.total, 0) / entries.length) * 100
+        );
+      }
+    } else {
+      // Use pre-aggregated CoverageSnapshot (all-time, fast)
+      const [coverageStateGroups, passRateGroups, executedCasesGroups] = await Promise.all([
+        prisma.coverageSnapshot.groupBy({
+          by: ['projectId', 'state'],
+          _count: { testCaseId: true },
+        }),
+        prisma.coverageSnapshot.groupBy({
+          by: ['projectId'],
+          where: { passRate: { not: null } },
+          _avg: { passRate: true },
+        }),
+        prisma.coverageSnapshot.groupBy({
+          by: ['projectId'],
+          where: { lastRunAt: { not: null } },
+          _count: { testCaseId: true },
+        }),
+      ]);
+
+      for (const g of coverageStateGroups) {
+        if (!covStateMap[g.projectId]) covStateMap[g.projectId] = { healthy: 0, stale: 0, failing: 0 };
+        const state = g.state as 'healthy' | 'stale' | 'failing';
+        if (state in covStateMap[g.projectId]) covStateMap[g.projectId][state] = g._count.testCaseId;
+      }
+      for (const g of passRateGroups) {
+        passRateMap[g.projectId] = g._avg.passRate != null
+          ? Math.round(g._avg.passRate * 100)
+          : null;
+      }
+      for (const g of executedCasesGroups) executedCasesMap[g.projectId] = g._count.testCaseId;
+    }
 
     const totalCases       = projects.reduce((s, p) => s + p._count.cases, 0);
     const totalOpenDefects = openDefectsGroups.reduce((s, g) => s + g._count.id, 0);
