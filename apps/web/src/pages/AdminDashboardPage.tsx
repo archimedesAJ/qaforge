@@ -4,6 +4,11 @@ import { useQuery } from '@tanstack/react-query';
 import { AppLayout } from '../components/shared/AppLayout';
 import { Button, Spinner, EmptyState, StatCard } from '../components/shared/ui';
 import { api } from '../lib/api';
+import {
+  buildAdminExecutiveSummary,
+  exportAdminReportPdf,
+  type AdminReportData,
+} from '../lib/export';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -130,6 +135,14 @@ function fmtRelative(dateStr: string) {
   return `${days}d ago`;
 }
 
+function getPeriodLabel(preset: DatePreset, customFrom: string, customUntil: string): string {
+  if (preset === 'custom' && customFrom && customUntil) {
+    const opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' };
+    return `${new Date(customFrom).toLocaleDateString('en-GB', opts)} – ${new Date(customUntil).toLocaleDateString('en-GB', opts)}`;
+  }
+  return DATE_PRESETS.find(p => p.key === preset)?.label ?? preset;
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export function AdminDashboardPage() {
@@ -137,6 +150,9 @@ export function AdminDashboardPage() {
   const [datePreset, setDatePreset] = useState<DatePreset>('30d');
   const [customFrom, setCustomFrom] = useState('');
   const [customUntil, setCustomUntil] = useState('');
+  const [showReportModal, setShowReportModal]     = useState(false);
+  const [reportSummaryText, setReportSummaryText] = useState('');
+  const [exporting, setExporting]                 = useState(false);
 
   const customReady = datePreset !== 'custom' || (!!customFrom && !!customUntil);
 
@@ -157,6 +173,80 @@ export function AdminDashboardPage() {
   const projects = data?.projects ?? [];
   const recent   = data?.recentRuns ?? [];
 
+  function openReportModal() {
+    if (!stats || projects.length === 0) return;
+    const withPassRate = projects.filter(p => p.passRate    !== null);
+    const withCoverage = projects.filter(p => p.coveragePct !== null);
+    const reportData: AdminReportData = {
+      period:      getPeriodLabel(datePreset, customFrom, customUntil),
+      generatedAt: new Date().toISOString(),
+      stats: {
+        totalProjects:  stats.totalProjects,
+        activatedUsers: stats.activatedUsers,
+        totalCases:     stats.totalCases,
+        openRuns:       stats.openRuns,
+        openDefects:    stats.openDefects,
+      },
+      kpis: {
+        avgPassRate:  withPassRate.length > 0 ? Math.round(withPassRate.reduce((s, p) => s + p.passRate!, 0)  / withPassRate.length) : null,
+        avgCoverage:  withCoverage.length > 0 ? Math.round(withCoverage.reduce((s, p) => s + p.coveragePct!, 0) / withCoverage.length) : null,
+        totalFailing: projects.reduce((s, p) => s + p.coverageStats.failing, 0),
+        totalStale:   projects.reduce((s, p) => s + p.coverageStats.stale,   0),
+        totalFlaky:   projects.reduce((s, p) => s + p.flakyCount,            0),
+      },
+      projects: projects.map(p => ({
+        name:          p.name,
+        cases:         p.counts.cases,
+        passRate:      p.passRate,
+        coveragePct:   p.coveragePct,
+        coverageStats: p.coverageStats,
+        flakyCount:    p.flakyCount,
+        latestRun:     p.latestRun ? { env: p.latestRun.env, status: p.latestRun.status, startedAt: p.latestRun.startedAt } : null,
+        openDefects:   p.openDefects,
+      })),
+    };
+    setReportSummaryText(buildAdminExecutiveSummary(reportData));
+    setShowReportModal(true);
+  }
+
+  async function handleExportPdf() {
+    if (!stats) return;
+    setExporting(true);
+    const withPassRate = projects.filter(p => p.passRate    !== null);
+    const withCoverage = projects.filter(p => p.coveragePct !== null);
+    const reportData: AdminReportData = {
+      period:      getPeriodLabel(datePreset, customFrom, customUntil),
+      generatedAt: new Date().toISOString(),
+      stats: {
+        totalProjects:  stats.totalProjects,
+        activatedUsers: stats.activatedUsers,
+        totalCases:     stats.totalCases,
+        openRuns:       stats.openRuns,
+        openDefects:    stats.openDefects,
+      },
+      kpis: {
+        avgPassRate:  withPassRate.length > 0 ? Math.round(withPassRate.reduce((s, p) => s + p.passRate!, 0)  / withPassRate.length) : null,
+        avgCoverage:  withCoverage.length > 0 ? Math.round(withCoverage.reduce((s, p) => s + p.coveragePct!, 0) / withCoverage.length) : null,
+        totalFailing: projects.reduce((s, p) => s + p.coverageStats.failing, 0),
+        totalStale:   projects.reduce((s, p) => s + p.coverageStats.stale,   0),
+        totalFlaky:   projects.reduce((s, p) => s + p.flakyCount,            0),
+      },
+      projects: projects.map(p => ({
+        name:          p.name,
+        cases:         p.counts.cases,
+        passRate:      p.passRate,
+        coveragePct:   p.coveragePct,
+        coverageStats: p.coverageStats,
+        flakyCount:    p.flakyCount,
+        latestRun:     p.latestRun ? { env: p.latestRun.env, status: p.latestRun.status, startedAt: p.latestRun.startedAt } : null,
+        openDefects:   p.openDefects,
+      })),
+    };
+    await exportAdminReportPdf(reportData, { executiveSummary: reportSummaryText });
+    setExporting(false);
+    setShowReportModal(false);
+  }
+
   return (
     <AppLayout title="System overview">
       <div style={{ maxWidth: 1080, margin: '0 auto' }}>
@@ -165,6 +255,11 @@ export function AdminDashboardPage() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
           <Button variant="ghost" size="sm" onClick={() => navigate('/')}>← All projects</Button>
           <div style={{ display: 'flex', gap: 8 }}>
+            {stats && projects.length > 0 && (
+              <Button variant="secondary" size="sm" onClick={openReportModal}>
+                ↓ Export report
+              </Button>
+            )}
             <Button variant="secondary" size="sm" onClick={() => navigate('/admin/users')}>
               👥 Manage users
             </Button>
@@ -545,6 +640,68 @@ export function AdminDashboardPage() {
           </>
         )}
       </div>
+
+      {/* ── Report summary modal ── */}
+      {showReportModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+        }}
+          onClick={e => { if (e.target === e.currentTarget) setShowReportModal(false); }}
+        >
+          <div style={{
+            background: 'var(--surface-base)', borderRadius: 12, padding: 28,
+            width: 600, maxWidth: '92vw', boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--gray-900)' }}>
+                  Export overview report
+                </div>
+                <div style={{ fontSize: '0.8125rem', color: 'var(--gray-400)', marginTop: 2 }}>
+                  {getPeriodLabel(datePreset, customFrom, customUntil)}
+                </div>
+              </div>
+              <button
+                onClick={() => setShowReportModal(false)}
+                style={{ background: 'none', border: 'none', fontSize: '1.25rem', cursor: 'pointer', color: 'var(--gray-400)', lineHeight: 1 }}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--gray-700)', display: 'block', marginBottom: 6 }}>
+                Executive summary
+              </label>
+              <textarea
+                value={reportSummaryText}
+                onChange={e => setReportSummaryText(e.target.value)}
+                rows={8}
+                style={{
+                  width: '100%', boxSizing: 'border-box', padding: '10px 12px',
+                  border: '1px solid var(--border-color)', borderRadius: 8,
+                  fontSize: '0.875rem', fontFamily: 'inherit', lineHeight: 1.6,
+                  color: 'var(--gray-800)', background: 'var(--surface-base)',
+                  resize: 'vertical',
+                }}
+              />
+              <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', marginTop: 4 }}>
+                Auto-generated — edit before exporting.
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
+              <Button variant="secondary" size="sm" onClick={() => setShowReportModal(false)}>
+                Cancel
+              </Button>
+              <Button variant="primary" size="sm" onClick={handleExportPdf} disabled={exporting}>
+                {exporting ? 'Generating…' : '↓ Export PDF'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 }
