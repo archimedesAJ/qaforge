@@ -231,11 +231,11 @@ export function AdminDashboardPage() {
           )}
         </div>
 
-        {isLoading && !data && (
+        {(isLoading && !data) || !customReady ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
             <Spinner size="lg" />
           </div>
-        )}
+        ) : null}
 
         {!isLoading && stats && (
           <>
@@ -338,7 +338,27 @@ export function AdminDashboardPage() {
                                   background: stale === 'ok' ? '#16A34A' : stale === 'stale' ? '#D97706' : '#D1D5DB',
                                 }} title={stale === 'ok' ? 'Active recently' : stale === 'stale' ? 'No run in 30+ days' : 'No runs yet'} />
                                 <div>
-                                  <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--gray-900)' }}>{p.name}</div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span style={{ fontWeight: 600, fontSize: '0.9rem', color: stale === 'none' ? 'var(--gray-400)' : 'var(--gray-900)' }}>{p.name}</span>
+                                    {stale === 'none' && (
+                                      <span style={{
+                                        fontSize: '0.6875rem', fontWeight: 600, padding: '1px 7px', borderRadius: 20,
+                                        background: '#F3F4F6', color: '#9CA3AF', border: '1px solid #E5E7EB',
+                                        letterSpacing: '0.02em',
+                                      }}>
+                                        Inactive
+                                      </span>
+                                    )}
+                                    {stale === 'stale' && (
+                                      <span style={{
+                                        fontSize: '0.6875rem', fontWeight: 600, padding: '1px 7px', borderRadius: 20,
+                                        background: '#FEF3C7', color: '#D97706', border: '1px solid #FDE68A',
+                                        letterSpacing: '0.02em',
+                                      }}>
+                                        Stale
+                                      </span>
+                                    )}
+                                  </div>
                                   <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', fontFamily: 'monospace' }}>{p.slug}</div>
                                 </div>
                               </div>
