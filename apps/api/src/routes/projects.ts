@@ -234,7 +234,7 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
     const [
       totalUsers, activatedUsers, projects, recentRuns,
       openDefectsGroups, openRunsCount,
-      coverageStateGroups, flakyGroups, passRateGroups,
+      coverageStateGroups, flakyGroups, passRateGroups, executedCasesGroups,
     ] = await Promise.all([
       prisma.user.count(),
       prisma.user.count({ where: { activated: true } }),
@@ -263,7 +263,7 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         _count: { id: true },
       }),
       prisma.testRun.count({ where: { status: 'open' } }),
-      // Coverage state counts per project (from pre-aggregated snapshot)
+      // Coverage state counts per project (used for failing/stale sub-labels)
       prisma.coverageSnapshot.groupBy({
         by: ['projectId', 'state'],
         _count: { testCaseId: true },
@@ -279,6 +279,12 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         by: ['projectId'],
         where: { passRate: { not: null } },
         _avg: { passRate: true },
+      }),
+      // Execution coverage: cases executed at least once (lastRunAt IS NOT NULL)
+      prisma.coverageSnapshot.groupBy({
+        by: ['projectId'],
+        where: { lastRunAt: { not: null } },
+        _count: { testCaseId: true },
       }),
     ]);
 
@@ -303,6 +309,9 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         : null;
     }
 
+    const executedCasesMap: Record<string, number> = {};
+    for (const g of executedCasesGroups) executedCasesMap[g.projectId] = g._count.testCaseId;
+
     const totalCases       = projects.reduce((s, p) => s + p._count.cases, 0);
     const totalOpenDefects = openDefectsGroups.reduce((s, g) => s + g._count.id, 0);
 
@@ -316,19 +325,20 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         openDefects: totalOpenDefects,
       },
       projects: projects.map(p => {
-        const cov = covStateMap[p.id] ?? { healthy: 0, stale: 0, failing: 0 };
-        const covTotal = cov.healthy + cov.stale + cov.failing;
+        const cov        = covStateMap[p.id] ?? { healthy: 0, stale: 0, failing: 0 };
+        const executed   = executedCasesMap[p.id] ?? 0;
+        const totalCases = p._count.cases;
         return {
           id: p.id,
           name: p.name,
           slug: p.slug,
           createdAt: p.createdAt,
           updatedAt: p.updatedAt,
-          counts: { cases: p._count.cases, runs: p._count.runs, members: p._count.members },
+          counts: { cases: totalCases, runs: p._count.runs, members: p._count.members },
           openDefects: openDefectsMap[p.id] ?? 0,
           latestRun: p.runs[0] ?? null,
           passRate: passRateMap[p.id] ?? null,
-          coveragePct: covTotal > 0 ? Math.round((cov.healthy / covTotal) * 100) : null,
+          coveragePct: totalCases > 0 ? Math.round((executed / totalCases) * 100) : null,
           coverageStats: cov,
           flakyCount: flakyMap[p.id] ?? 0,
         };

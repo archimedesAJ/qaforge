@@ -160,8 +160,8 @@ export function AdminDashboardPage() {
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
                     {[
-                      { label: 'Avg pass rate',   value: avgPassRate  !== null ? `${avgPassRate}%`   : '—', color: kpiColor(avgPassRate,  [90, 70]),  sub: `across ${withPassRate.length} project${withPassRate.length !== 1 ? 's' : ''} with data` },
-                      { label: 'Avg coverage',     value: avgCoverage  !== null ? `${avgCoverage}%`  : '—', color: kpiColor(avgCoverage, [80, 60]),  sub: `${totalHealthy} healthy cases` },
+                      { label: 'Avg pass rate',      value: avgPassRate  !== null ? `${avgPassRate}%`  : '—', color: kpiColor(avgPassRate,  [90, 70]), sub: `across ${withPassRate.length} project${withPassRate.length !== 1 ? 's' : ''} with data` },
+                      { label: 'Avg exec. coverage', value: avgCoverage  !== null ? `${avgCoverage}%` : '—', color: kpiColor(avgCoverage, [80, 60]), sub: `${totalHealthy} healthy · cases run ÷ total` },
                       { label: 'Failing cases',    value: totalFailing, color: totalFailing > 0 ? '#dc2626' : 'var(--color-success)', sub: `${totalStale} stale` },
                       { label: 'Flaky tests',      value: totalFlaky,   color: totalFlaky  > 0 ? '#d97706' : 'var(--color-success)', sub: 'across all projects' },
                       { label: 'Open defects',     value: stats!.openDefects, color: stats!.openDefects > 0 ? '#dc2626' : 'var(--color-success)', sub: 'across all projects' },
@@ -199,7 +199,7 @@ export function AdminDashboardPage() {
                         <th style={{ textAlign: 'center' }}>Members</th>
                         <th style={{ textAlign: 'center' }}>Cases</th>
                         <th style={{ textAlign: 'center' }}>Pass rate</th>
-                        <th style={{ textAlign: 'center' }}>Coverage</th>
+                        <th style={{ textAlign: 'center' }}>Exec. coverage</th>
                         <th style={{ textAlign: 'center' }}>Flaky</th>
                         <th>Latest run</th>
                         <th style={{ textAlign: 'center' }}>Open defects</th>

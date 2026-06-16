@@ -29,7 +29,8 @@ export function InsightsPage() {
   const stale     = cases.filter(c => c.state === 'stale').length;
   const failing   = cases.filter(c => c.state === 'failing').length;
   const total     = cases.length;
-  const coverPct  = total > 0 ? Math.round((healthy / total) * 100) : 0;
+  const executed  = cases.filter(c => c.lastRun != null).length;
+  const coverPct  = total > 0 ? Math.round((executed / total) * 100) : 0;
 
   const latestRate = series.length > 0 ? series[series.length - 1].passRate : null;
   const prevRate   = series.length > 1 ? series[series.length - 2].passRate  : null;
@@ -82,9 +83,9 @@ export function InsightsPage() {
                 : undefined}
             />
             <StatCard
-              label="Coverage"
+              label="Exec. coverage"
               value={total > 0 ? `${coverPct}%` : '—'}
-              sub={`${healthy} healthy · ${stale} stale · ${failing} failing`}
+              sub={`${executed} of ${total} cases run · ${failing} failing · ${stale} stale`}
               color={coverPct >= 80 ? 'var(--color-success)' : coverPct >= 60 ? 'var(--color-warning)' : 'var(--color-danger)'}
             />
             <StatCard
