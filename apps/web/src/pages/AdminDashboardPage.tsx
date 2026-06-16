@@ -73,7 +73,7 @@ function fmt(dateStr: string) {
   });
 }
 
-type DatePreset = '7d' | '30d' | '90d' | 'month' | 'quarter' | 'all';
+type DatePreset = '7d' | '30d' | '90d' | 'month' | 'quarter' | 'all' | 'custom';
 
 const DATE_PRESETS: Array<{ key: DatePreset; label: string }> = [
   { key: '7d',      label: 'Last 7 days'  },
@@ -82,10 +82,24 @@ const DATE_PRESETS: Array<{ key: DatePreset; label: string }> = [
   { key: 'month',   label: 'This month'   },
   { key: 'quarter', label: 'This quarter' },
   { key: 'all',     label: 'All time'     },
+  { key: 'custom',  label: 'Custom'       },
 ];
 
-function getDateRange(preset: DatePreset): { since: string | null; until: string | null } {
+function getDateRange(
+  preset: DatePreset,
+  customFrom?: string,
+  customUntil?: string,
+): { since: string | null; until: string | null } {
   if (preset === 'all') return { since: null, until: null };
+  if (preset === 'custom') {
+    if (customFrom && customUntil) {
+      return {
+        since: new Date(customFrom).toISOString(),
+        until: new Date(customUntil + 'T23:59:59').toISOString(),
+      };
+    }
+    return { since: null, until: null };
+  }
   const now   = new Date();
   const until = now.toISOString();
   if (preset === '7d')   return { since: new Date(now.getTime() - 7  * 86_400_000).toISOString(), until };
@@ -121,11 +135,16 @@ function fmtRelative(dateStr: string) {
 export function AdminDashboardPage() {
   const navigate = useNavigate();
   const [datePreset, setDatePreset] = useState<DatePreset>('30d');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customUntil, setCustomUntil] = useState('');
+
+  const customReady = datePreset !== 'custom' || (!!customFrom && !!customUntil);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['sysadmin-overview', datePreset],
+    queryKey: ['sysadmin-overview', datePreset, customFrom, customUntil],
+    enabled: customReady,
     queryFn: () => {
-      const { since, until } = getDateRange(datePreset);
+      const { since, until } = getDateRange(datePreset, customFrom, customUntil);
       const params = new URLSearchParams();
       if (since) params.set('since', since);
       if (until) params.set('until', until);
@@ -153,27 +172,63 @@ export function AdminDashboardPage() {
         </div>
 
         {/* Date range picker */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24 }}>
-          <span style={{ fontSize: '0.8125rem', color: 'var(--gray-500)', fontWeight: 500, marginRight: 4 }}>
-            KPI period:
-          </span>
-          {DATE_PRESETS.map(p => (
-            <button
-              key={p.key}
-              onClick={() => setDatePreset(p.key)}
-              style={{
-                padding: '5px 14px', borderRadius: 20, fontSize: '0.8125rem', fontWeight: 500,
-                cursor: 'pointer', border: '1px solid',
-                borderColor: datePreset === p.key ? 'var(--color-primary)' : 'var(--border-color)',
-                background:  datePreset === p.key ? 'var(--color-primary-light)' : 'var(--surface-base)',
-                color:       datePreset === p.key ? 'var(--color-primary)' : 'var(--gray-600)',
-                transition: 'all 0.15s',
-              }}
-            >
-              {p.label}
-            </button>
-          ))}
-          {isLoading && <Spinner size="sm" />}
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.8125rem', color: 'var(--gray-500)', fontWeight: 500, marginRight: 4 }}>
+              KPI period:
+            </span>
+            {DATE_PRESETS.map(p => (
+              <button
+                key={p.key}
+                onClick={() => setDatePreset(p.key)}
+                style={{
+                  padding: '5px 14px', borderRadius: 20, fontSize: '0.8125rem', fontWeight: 500,
+                  cursor: 'pointer', border: '1px solid',
+                  borderColor: datePreset === p.key ? 'var(--color-primary)' : 'var(--border-color)',
+                  background:  datePreset === p.key ? 'var(--color-primary-light)' : 'var(--surface-base)',
+                  color:       datePreset === p.key ? 'var(--color-primary)' : 'var(--gray-600)',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+            {isLoading && <Spinner size="sm" />}
+          </div>
+
+          {datePreset === 'custom' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, marginLeft: 2 }}>
+              <label style={{ fontSize: '0.8125rem', color: 'var(--gray-500)', fontWeight: 500 }}>From</label>
+              <input
+                type="date"
+                value={customFrom}
+                max={customUntil || undefined}
+                onChange={e => setCustomFrom(e.target.value)}
+                style={{
+                  padding: '5px 10px', borderRadius: 6, fontSize: '0.875rem',
+                  border: '1px solid var(--border-color)', background: 'var(--surface-base)',
+                  color: 'var(--text-primary)', fontFamily: 'inherit',
+                }}
+              />
+              <label style={{ fontSize: '0.8125rem', color: 'var(--gray-500)', fontWeight: 500 }}>To</label>
+              <input
+                type="date"
+                value={customUntil}
+                min={customFrom || undefined}
+                onChange={e => setCustomUntil(e.target.value)}
+                style={{
+                  padding: '5px 10px', borderRadius: 6, fontSize: '0.875rem',
+                  border: '1px solid var(--border-color)', background: 'var(--surface-base)',
+                  color: 'var(--text-primary)', fontFamily: 'inherit',
+                }}
+              />
+              {!customReady && (
+                <span style={{ fontSize: '0.8125rem', color: 'var(--gray-400)' }}>
+                  Select both dates to load data
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {isLoading && !data && (
