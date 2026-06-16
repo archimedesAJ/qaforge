@@ -289,7 +289,7 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
     let executedCasesMap: Record<string, number> = {};
 
     if (isDateBounded) {
-      // Fetch every RunResult in the period and compute all three maps in JS
+      // Fetch every RunResult in the period
       const periodResults = await prisma.runResult.findMany({
         where: { executedAt: { gte: sinceDate!, lte: untilDate! } },
         select: { testCaseId: true, status: true, run: { select: { projectId: true } } },
@@ -306,8 +306,32 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         if (r.status === 'pass') pcMap[pid][tcid].pass++;
       }
 
+      // Resolve lineageId for every executed testCaseId so that multiple versions
+      // of the same case (created by in-run editing) count as one executed case.
+      // Without this, executed can exceed totalCases and coverage exceeds 100%.
+      const allExecutedIds = [...new Set(periodResults.map(r => r.testCaseId))];
+      const caseLineages = allExecutedIds.length > 0
+        ? await prisma.testCase.findMany({
+            where: { id: { in: allExecutedIds } },
+            select: { id: true, projectId: true, lineageId: true },
+          })
+        : [];
+      const lineageById: Record<string, string> = {};
+      for (const c of caseLineages) {
+        lineageById[c.id] = (c as unknown as { lineageId?: string | null }).lineageId ?? c.id;
+      }
+
       for (const [pid, casesMap] of Object.entries(pcMap)) {
-        const entries  = Object.values(casesMap);
+        // Merge results by lineageId so versions of the same case aren't double-counted
+        const byLineage: Record<string, { pass: number; total: number }> = {};
+        for (const [tcid, counts] of Object.entries(casesMap)) {
+          const lid = lineageById[tcid] ?? tcid;
+          if (!byLineage[lid]) byLineage[lid] = { pass: 0, total: 0 };
+          byLineage[lid].pass  += counts.pass;
+          byLineage[lid].total += counts.total;
+        }
+
+        const entries  = Object.values(byLineage);
         const executed = entries.length;
         const healthy  = entries.filter(e => e.pass / e.total >= 0.8).length;
         const failing  = executed - healthy;
@@ -316,9 +340,9 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
 
         covStateMap[pid]      = { healthy, stale, failing };
         executedCasesMap[pid] = executed;
-        passRateMap[pid]      = Math.round(
-          (entries.reduce((s, e) => s + e.pass / e.total, 0) / entries.length) * 100
-        );
+        passRateMap[pid]      = executed > 0 ? Math.round(
+          (entries.reduce((s, e) => s + e.pass / e.total, 0) / executed) * 100
+        ) : null;
       }
     } else {
       // Use pre-aggregated CoverageSnapshot (all-time, fast)
