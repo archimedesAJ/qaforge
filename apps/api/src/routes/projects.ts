@@ -321,6 +321,24 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         lineageById[c.id] = (c as unknown as { lineageId?: string | null }).lineageId ?? c.id;
       }
 
+      // Fetch currently active (non-archived) cases for each project that has period results.
+      // This lets us exclude deprecated/deleted lineages from the executed count so the
+      // numerator can never exceed the denominator (p._count.cases).
+      const projectIdsWithResults = Object.keys(pcMap);
+      const activeCasesInScope = projectIdsWithResults.length > 0
+        ? await prisma.testCase.findMany({
+            where: { projectId: { in: projectIdsWithResults }, archived: false },
+            select: { id: true, projectId: true, lineageId: true },
+          })
+        : [];
+      const activeLineagesPerProject: Record<string, Set<string>> = {};
+      for (const c of activeCasesInScope) {
+        if (!activeLineagesPerProject[c.projectId]) activeLineagesPerProject[c.projectId] = new Set();
+        activeLineagesPerProject[c.projectId].add(
+          (c as unknown as { lineageId?: string | null }).lineageId ?? c.id,
+        );
+      }
+
       for (const [pid, casesMap] of Object.entries(pcMap)) {
         // Merge results by lineageId so versions of the same case aren't double-counted
         const byLineage: Record<string, { pass: number; total: number }> = {};
@@ -331,9 +349,15 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
           byLineage[lid].total += counts.total;
         }
 
-        const entries  = Object.values(byLineage);
-        const executed = entries.length;
-        const healthy  = entries.filter(e => e.pass / e.total >= 0.8).length;
+        // Only count lineages that have a currently active case — excludes deprecated/deleted
+        // lineages that would otherwise make the numerator exceed p._count.cases (denominator).
+        const activeLineages = activeLineagesPerProject[pid] ?? new Set<string>();
+        const activeEntries  = Object.entries(byLineage)
+          .filter(([lid]) => activeLineages.has(lid))
+          .map(([, e]) => e);
+
+        const executed = activeEntries.length;
+        const healthy  = activeEntries.filter(e => e.pass / e.total >= 0.8).length;
         const failing  = executed - healthy;
         const project  = projects.find(p => p.id === pid);
         const stale    = Math.max(0, (project?._count.cases ?? 0) - executed);
@@ -341,7 +365,7 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         covStateMap[pid]      = { healthy, stale, failing };
         executedCasesMap[pid] = executed;
         passRateMap[pid]      = executed > 0 ? Math.round(
-          (entries.reduce((s, e) => s + e.pass / e.total, 0) / executed) * 100
+          (activeEntries.reduce((s, e) => s + e.pass / e.total, 0) / executed) * 100
         ) : null;
       }
     } else {
