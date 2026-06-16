@@ -32,6 +32,10 @@ interface ProjectHealth {
   counts: { cases: number; runs: number; members: number };
   openDefects: number;
   latestRun: LatestRun | null;
+  passRate: number | null;
+  coveragePct: number | null;
+  coverageStats: { healthy: number; stale: number; failing: number };
+  flakyCount: number;
 }
 
 interface RecentRun {
@@ -66,6 +70,13 @@ function fmt(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('en-GB', {
     day: 'numeric', month: 'short', year: 'numeric',
   });
+}
+
+function kpiColor(value: number | null, thresholds: [number, number]): string {
+  if (value === null) return 'var(--gray-400)';
+  if (value >= thresholds[0]) return 'var(--color-success)';
+  if (value >= thresholds[1]) return '#d97706';
+  return '#dc2626';
 }
 
 function fmtRelative(dateStr: string) {
@@ -129,6 +140,43 @@ export function AdminDashboardPage() {
                 color={stats.totalUsers - stats.activatedUsers > 0 ? 'var(--gray-500)' : undefined} />
             </div>
 
+            {/* Coverage KPI banner */}
+            {projects.length > 0 && (() => {
+              const withPassRate  = projects.filter(p => p.passRate !== null);
+              const withCoverage  = projects.filter(p => p.coveragePct !== null);
+              const avgPassRate   = withPassRate.length  > 0 ? Math.round(withPassRate.reduce((s, p) => s + p.passRate!, 0)  / withPassRate.length)  : null;
+              const avgCoverage   = withCoverage.length > 0 ? Math.round(withCoverage.reduce((s, p) => s + p.coveragePct!, 0) / withCoverage.length) : null;
+              const totalFlaky    = projects.reduce((s, p) => s + p.flakyCount, 0);
+              const totalFailing  = projects.reduce((s, p) => s + p.coverageStats.failing, 0);
+              const totalStale    = projects.reduce((s, p) => s + p.coverageStats.stale, 0);
+              const totalHealthy  = projects.reduce((s, p) => s + p.coverageStats.healthy, 0);
+              return (
+                <div style={{
+                  background: 'var(--surface-base)', border: '1px solid var(--border-color)',
+                  borderRadius: 10, padding: '16px 20px', marginBottom: 20,
+                }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12 }}>
+                    Coverage KPIs — all projects
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
+                    {[
+                      { label: 'Avg pass rate',   value: avgPassRate  !== null ? `${avgPassRate}%`   : '—', color: kpiColor(avgPassRate,  [90, 70]),  sub: `across ${withPassRate.length} project${withPassRate.length !== 1 ? 's' : ''} with data` },
+                      { label: 'Avg coverage',     value: avgCoverage  !== null ? `${avgCoverage}%`  : '—', color: kpiColor(avgCoverage, [80, 60]),  sub: `${totalHealthy} healthy cases` },
+                      { label: 'Failing cases',    value: totalFailing, color: totalFailing > 0 ? '#dc2626' : 'var(--color-success)', sub: `${totalStale} stale` },
+                      { label: 'Flaky tests',      value: totalFlaky,   color: totalFlaky  > 0 ? '#d97706' : 'var(--color-success)', sub: 'across all projects' },
+                      { label: 'Open defects',     value: stats!.openDefects, color: stats!.openDefects > 0 ? '#dc2626' : 'var(--color-success)', sub: 'across all projects' },
+                    ].map(item => (
+                      <div key={item.label} style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '1.75rem', fontWeight: 700, color: item.color, lineHeight: 1 }}>{item.value}</div>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--gray-600)', marginTop: 4 }}>{item.label}</div>
+                        <div style={{ fontSize: '0.6875rem', color: 'var(--gray-400)', marginTop: 2 }}>{item.sub}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Projects health table */}
             <div className="card" style={{ padding: 0, marginBottom: 24 }}>
               <div className="card-header" style={{ padding: '14px 20px' }}>
@@ -150,7 +198,9 @@ export function AdminDashboardPage() {
                         <th>Project</th>
                         <th style={{ textAlign: 'center' }}>Members</th>
                         <th style={{ textAlign: 'center' }}>Cases</th>
-                        <th style={{ textAlign: 'center' }}>Runs</th>
+                        <th style={{ textAlign: 'center' }}>Pass rate</th>
+                        <th style={{ textAlign: 'center' }}>Coverage</th>
+                        <th style={{ textAlign: 'center' }}>Flaky</th>
                         <th>Latest run</th>
                         <th style={{ textAlign: 'center' }}>Open defects</th>
                         <th />
@@ -190,9 +240,53 @@ export function AdminDashboardPage() {
                               {p.counts.cases}
                             </td>
 
-                            {/* Runs */}
-                            <td style={{ textAlign: 'center', color: 'var(--gray-600)' }}>
-                              {p.counts.runs}
+                            {/* Pass rate */}
+                            <td style={{ textAlign: 'center' }}>
+                              {p.passRate !== null ? (
+                                <span style={{ fontWeight: 700, color: kpiColor(p.passRate, [90, 70]) }}>
+                                  {p.passRate}%
+                                </span>
+                              ) : (
+                                <span style={{ color: 'var(--gray-300)', fontSize: '0.875rem' }}>—</span>
+                              )}
+                            </td>
+
+                            {/* Coverage */}
+                            <td style={{ textAlign: 'center' }}>
+                              {p.coveragePct !== null ? (
+                                <div>
+                                  <span style={{ fontWeight: 700, color: kpiColor(p.coveragePct, [80, 60]) }}>
+                                    {p.coveragePct}%
+                                  </span>
+                                  {p.coverageStats.failing > 0 && (
+                                    <div style={{ fontSize: '0.6875rem', color: '#dc2626' }}>
+                                      {p.coverageStats.failing} failing
+                                    </div>
+                                  )}
+                                  {p.coverageStats.failing === 0 && p.coverageStats.stale > 0 && (
+                                    <div style={{ fontSize: '0.6875rem', color: '#d97706' }}>
+                                      {p.coverageStats.stale} stale
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span style={{ color: 'var(--gray-300)', fontSize: '0.875rem' }}>—</span>
+                              )}
+                            </td>
+
+                            {/* Flaky */}
+                            <td style={{ textAlign: 'center' }}>
+                              {p.flakyCount > 0 ? (
+                                <span style={{
+                                  padding: '2px 8px', borderRadius: 20,
+                                  fontSize: '0.8125rem', fontWeight: 700,
+                                  color: '#d97706', background: '#fef3c7',
+                                }}>
+                                  {p.flakyCount}
+                                </span>
+                              ) : (
+                                <span style={{ color: 'var(--gray-300)', fontSize: '0.875rem' }}>—</span>
+                              )}
                             </td>
 
                             {/* Latest run */}

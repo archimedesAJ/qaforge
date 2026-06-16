@@ -231,7 +231,11 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
     const caller = (req as unknown as { isSystemAdmin?: boolean });
     if (!caller.isSystemAdmin) return reply.code(403).send({ error: 'System admin access required' });
 
-    const [totalUsers, activatedUsers, projects, recentRuns, openDefectsGroups, openRunsCount] = await Promise.all([
+    const [
+      totalUsers, activatedUsers, projects, recentRuns,
+      openDefectsGroups, openRunsCount,
+      coverageStateGroups, flakyGroups, passRateGroups,
+    ] = await Promise.all([
       prisma.user.count(),
       prisma.user.count({ where: { activated: true } }),
       prisma.project.findMany({
@@ -259,12 +263,47 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         _count: { id: true },
       }),
       prisma.testRun.count({ where: { status: 'open' } }),
+      // Coverage state counts per project (from pre-aggregated snapshot)
+      prisma.coverageSnapshot.groupBy({
+        by: ['projectId', 'state'],
+        _count: { testCaseId: true },
+      }),
+      // Flaky test count per project
+      prisma.flakinessScore.groupBy({
+        by: ['projectId'],
+        where: { score: { gt: 0 } },
+        _count: { id: true },
+      }),
+      // Average per-case pass rate per project (0–1 float)
+      prisma.coverageSnapshot.groupBy({
+        by: ['projectId'],
+        where: { passRate: { not: null } },
+        _avg: { passRate: true },
+      }),
     ]);
 
     const openDefectsMap: Record<string, number> = {};
     for (const g of openDefectsGroups) openDefectsMap[g.projectId] = g._count.id;
 
-    const totalCases      = projects.reduce((s, p) => s + p._count.cases, 0);
+    // Build per-project coverage state map
+    const covStateMap: Record<string, { healthy: number; stale: number; failing: number }> = {};
+    for (const g of coverageStateGroups) {
+      if (!covStateMap[g.projectId]) covStateMap[g.projectId] = { healthy: 0, stale: 0, failing: 0 };
+      const state = g.state as 'healthy' | 'stale' | 'failing';
+      if (state in covStateMap[g.projectId]) covStateMap[g.projectId][state] = g._count.testCaseId;
+    }
+
+    const flakyMap: Record<string, number> = {};
+    for (const g of flakyGroups) flakyMap[g.projectId] = g._count.id;
+
+    const passRateMap: Record<string, number | null> = {};
+    for (const g of passRateGroups) {
+      passRateMap[g.projectId] = g._avg.passRate != null
+        ? Math.round(g._avg.passRate * 100)
+        : null;
+    }
+
+    const totalCases       = projects.reduce((s, p) => s + p._count.cases, 0);
     const totalOpenDefects = openDefectsGroups.reduce((s, g) => s + g._count.id, 0);
 
     return {
@@ -276,16 +315,24 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         openRuns: openRunsCount,
         openDefects: totalOpenDefects,
       },
-      projects: projects.map(p => ({
-        id: p.id,
-        name: p.name,
-        slug: p.slug,
-        createdAt: p.createdAt,
-        updatedAt: p.updatedAt,
-        counts: { cases: p._count.cases, runs: p._count.runs, members: p._count.members },
-        openDefects: openDefectsMap[p.id] ?? 0,
-        latestRun: p.runs[0] ?? null,
-      })),
+      projects: projects.map(p => {
+        const cov = covStateMap[p.id] ?? { healthy: 0, stale: 0, failing: 0 };
+        const covTotal = cov.healthy + cov.stale + cov.failing;
+        return {
+          id: p.id,
+          name: p.name,
+          slug: p.slug,
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt,
+          counts: { cases: p._count.cases, runs: p._count.runs, members: p._count.members },
+          openDefects: openDefectsMap[p.id] ?? 0,
+          latestRun: p.runs[0] ?? null,
+          passRate: passRateMap[p.id] ?? null,
+          coveragePct: covTotal > 0 ? Math.round((cov.healthy / covTotal) * 100) : null,
+          coverageStats: cov,
+          flakyCount: flakyMap[p.id] ?? 0,
+        };
+      }),
       recentRuns,
     };
   });
