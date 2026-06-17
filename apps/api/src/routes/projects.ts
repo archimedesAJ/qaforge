@@ -39,7 +39,11 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
   // POST /projects — create a new project (any authenticated user)
   app.post('/', async (req, reply) => {
     const { userId } = req.user as { userId: string };
-    const body = CreateProjectSchema.parse(req.body);
+    const parsed = CreateProjectSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.errors[0]?.message ?? 'Invalid input' });
+    }
+    const body = parsed.data;
 
     const existing = await prisma.project.findUnique({ where: { slug: body.slug } });
     if (existing) return reply.code(409).send({ error: 'Slug already taken' });

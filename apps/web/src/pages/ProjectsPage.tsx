@@ -194,8 +194,8 @@ function CreateProjectModal({
 
   function handleNameChange(value: string) {
     setName(value);
-    // Auto-generate slug from name
-    setSlug(value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''));
+    const generated = value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    setSlug(generated.slice(0, 50));
   }
 
   function handleSubmit(e: FormEvent) {
@@ -203,6 +203,8 @@ function CreateProjectModal({
     setError('');
     if (!name.trim()) { setError('Project name is required'); return; }
     if (!slug.trim()) { setError('Slug is required'); return; }
+    if (slug.trim().length > 50) { setError('Slug must be 50 characters or fewer'); return; }
+    if (!/^[a-z0-9-]+$/.test(slug.trim())) { setError('Slug must be lowercase letters, numbers, and hyphens only'); return; }
     mutation.mutate({ name: name.trim(), slug: slug.trim() });
   }
 
