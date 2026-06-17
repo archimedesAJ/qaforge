@@ -195,7 +195,13 @@ function CreateProjectModal({
   function handleNameChange(value: string) {
     setName(value);
     const generated = value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    setSlug(generated.slice(0, 50));
+    if (generated.length <= 50) {
+      setSlug(generated);
+    } else {
+      const cut = generated.slice(0, 50);
+      const lastHyphen = cut.lastIndexOf('-');
+      setSlug(lastHyphen > 10 ? cut.slice(0, lastHyphen) : cut);
+    }
   }
 
   function handleSubmit(e: FormEvent) {
