@@ -51,12 +51,17 @@ async function updateCoverageSnapshots(projectId: string): Promise<void> {
       continue;
     }
 
-    const lastRunAt = results[0].executedAt;
-    const passCount = results.filter((r: { status: string }) => r.status === 'pass').length;
-    const passRate  = passCount / results.length;
-    const isStale   = lastRunAt < staleCutoff;
+    const lastRunAt   = results[0].executedAt;
+    const isStale     = lastRunAt < staleCutoff;
 
-    const state = isStale
+    // Only pass/fail are conclusive verdicts. Blocked and skipped do not
+    // reflect test quality and must not count against pass rate.
+    const conclusive  = results.filter((r: { status: string }) => r.status === 'pass' || r.status === 'fail');
+    const passRate    = conclusive.length > 0
+      ? conclusive.filter((r: { status: string }) => r.status === 'pass').length / conclusive.length
+      : null;
+
+    const state = isStale || passRate === null
       ? 'stale'
       : passRate >= 0.8 ? 'healthy' : 'failing';
 
@@ -130,8 +135,9 @@ async function updateTrendSeries(runId: string, projectId: string): Promise<void
 
   if (results.length === 0) return;
 
-  const passCount = results.filter((r: { status: string }) => r.status === 'pass').length;
-  const passRate  = (passCount / results.length) * 100;
+  const conclusive = results.filter((r: { status: string }) => r.status === 'pass' || r.status === 'fail');
+  if (conclusive.length === 0) return;
+  const passRate   = (conclusive.filter((r: { status: string }) => r.status === 'pass').length / conclusive.length) * 100;
 
   await prisma.trendSeries.upsert({
     where: {

@@ -300,8 +300,11 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
       });
 
       // Group: projectId → testCaseId → {pass, total}
+      // Only pass/fail are conclusive verdicts — blocked and skipped do not
+      // reflect test quality and must not count against pass rate.
       const pcMap: Record<string, Record<string, { pass: number; total: number }>> = {};
       for (const r of periodResults) {
+        if (r.status !== 'pass' && r.status !== 'fail') continue;
         const pid  = r.run.projectId;
         const tcid = r.testCaseId;
         if (!pcMap[pid])       pcMap[pid] = {};
