@@ -23,6 +23,7 @@ interface RunResult {
   stepsLog?: unknown;
   errorMessage?: string;
   stackTrace?: string;
+  failureNote?: string | null;
   attachments?: Array<{ type: string; url: string }>;
   executedAt: string;
   testCase?: { title: string; type: string; priority?: string };
@@ -268,6 +269,48 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
         </div>
       </div>
 
+      {/* Blockers & reasons summary */}
+      {(blocked > 0 || skipped > 0) && (
+        <div style={{
+          marginBottom: 20, padding: '14px 16px',
+          background: 'var(--surface-base)', border: '1px solid var(--border-color)',
+          borderRadius: 8,
+        }}>
+          <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--gray-700)', marginBottom: 10 }}>
+            Blockers &amp; reasons
+          </div>
+          {results
+            .filter(r => r.status === 'blocked' || r.status === 'skipped')
+            .map(r => {
+              const c = STATUS_CONFIG[r.status] ?? STATUS_CONFIG['skipped'];
+              return (
+                <div key={r.id} style={{ display: 'flex', gap: 10, marginBottom: 7, alignItems: 'baseline' }}>
+                  <span style={{
+                    fontSize: '0.75rem', fontWeight: 700, color: c.color,
+                    background: c.bg, border: `1px solid ${c.border}`,
+                    padding: '1px 6px', borderRadius: 4, flexShrink: 0,
+                  }}>
+                    {r.status}
+                  </span>
+                  <span style={{ fontSize: '0.875rem', color: 'var(--gray-800)', fontWeight: 500 }}>
+                    {r.testCase?.title ?? `Test #${r.testCaseId.slice(-6)}`}
+                  </span>
+                  {r.failureNote ? (
+                    <span style={{ fontSize: '0.8125rem', color: 'var(--gray-500)' }}>
+                      — {r.failureNote}
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: '0.8125rem', color: 'var(--gray-300)', fontStyle: 'italic' }}>
+                      no reason recorded
+                    </span>
+                  )}
+                </div>
+              );
+            })
+          }
+        </div>
+      )}
+
       {/* Filters */}
       <div style={{
         display: 'flex', gap: 8, marginBottom: 14, padding: '10px 14px',
@@ -398,6 +441,14 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
                         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                       }}>
                         {result.errorMessage}
+                      </div>
+                    )}
+                    {result.failureNote && !isOpen && (
+                      <div style={{
+                        fontSize: '0.8125rem', color: cfg.color, marginTop: 2,
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }}>
+                        ↳ {result.failureNote}
                       </div>
                     )}
                   </div>
