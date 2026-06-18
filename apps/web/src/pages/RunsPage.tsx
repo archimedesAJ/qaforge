@@ -21,6 +21,7 @@ interface RunCase {
   runId: string;
   testCaseId: string;
   status: string;
+  note?: string | null;
   testCase: { id: string; title: string; type: string; priority: string; suiteId: string | null; steps?: unknown; tags?: unknown; preconditions?: string | null };
 }
 
@@ -58,6 +59,10 @@ export function RunsPage() {
   const [caseSearch, setCaseSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showSetPicker, setShowSetPicker] = useState(false);
+
+  // Inline note state (blocked / skipped / fail reason)
+  const [noteInputCase, setNoteInputCase] = useState<string | null>(null);
+  const [noteDraft, setNoteDraft]         = useState('');
 
   // Edit-in-run modal state
   const [editingRunCase, setEditingRunCase] = useState<RunCase | null>(null);
@@ -124,8 +129,8 @@ export function RunsPage() {
   });
 
   const markStatus = useMutation({
-    mutationFn: ({ caseId, status }: { caseId: string; status: string }) =>
-      api.put(`projects/${projectId}/runs/${pendingRun!.id}/cases/${caseId}/status`, { status }),
+    mutationFn: ({ caseId, status, note }: { caseId: string; status: string; note?: string }) =>
+      api.put(`projects/${projectId}/runs/${pendingRun!.id}/cases/${caseId}/status`, { status, note }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['run-cases', pendingRun?.id] });
     },
@@ -690,12 +695,16 @@ export function RunsPage() {
                   <EmptyState icon="▶" title="No cases assigned" description="This run has no assigned test cases." />
                 )}
                 {filteredRunCases.map(rc => {
-                  const chip = STATUS_CHIP[rc.status] ?? STATUS_CHIP.not_run;
-                  const canRun = ['manual', 'functional', 'api', 'exploratory'].includes(rc.testCase.type);
+                  const chip    = STATUS_CHIP[rc.status] ?? STATUS_CHIP.not_run;
+                  const canRun  = ['manual', 'functional', 'api', 'exploratory'].includes(rc.testCase.type);
+                  const needsNote = rc.status === 'blocked' || rc.status === 'skipped' || rc.status === 'fail';
+                  const notePlaceholder = rc.status === 'blocked' ? 'Block reason…' : rc.status === 'skipped' ? 'Skip reason…' : 'Failure note…';
+                  const isEditingNote   = noteInputCase === rc.testCase.id;
                   return (
-                    <div key={rc.id} style={{
+                    <div key={rc.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                    <div style={{
                       display: 'flex', alignItems: 'center', gap: 10,
-                      padding: '10px 16px', borderBottom: '1px solid var(--border-color)',
+                      padding: '10px 16px',
                     }}>
                       {/* Title */}
                       <div style={{ flex: 1, minWidth: 0 }}>
@@ -727,7 +736,15 @@ export function RunsPage() {
                             <button
                               key={btn.status}
                               title={btn.title}
-                              onClick={() => markStatus.mutate({ caseId: rc.testCase.id, status: btn.status })}
+                              onClick={() => {
+                                markStatus.mutate({ caseId: rc.testCase.id, status: btn.status });
+                                if (btn.status !== 'pass') {
+                                  setNoteInputCase(rc.testCase.id);
+                                  setNoteDraft(rc.note ?? '');
+                                } else {
+                                  setNoteInputCase(null);
+                                }
+                              }}
                               style={{
                                 background: rc.status === btn.status ? btn.color : 'var(--gray-100)',
                                 color: rc.status === btn.status ? '#fff' : btn.color,
@@ -769,7 +786,50 @@ export function RunsPage() {
                           ✎
                         </button>
                       )}
-                    </div>
+                    </div>{/* end inner row */}
+
+                    {/* Existing note (click to edit) */}
+                    {needsNote && rc.note && !isEditingNote && (
+                      <div
+                        style={{ padding: '0 16px 8px 44px', fontSize: '0.8125rem', color: chip.color, cursor: 'text' }}
+                        onClick={() => { setNoteInputCase(rc.testCase.id); setNoteDraft(rc.note ?? ''); }}
+                      >
+                        ↳ {rc.note}
+                      </div>
+                    )}
+
+                    {/* Inline note input */}
+                    {isEditingNote && (
+                      <div style={{ padding: '0 16px 10px 44px' }}>
+                        <input
+                          autoFocus
+                          value={noteDraft}
+                          placeholder={notePlaceholder}
+                          onChange={e => setNoteDraft(e.target.value)}
+                          onBlur={() => {
+                            markStatus.mutate({ caseId: rc.testCase.id, status: rc.status, note: noteDraft });
+                            setNoteInputCase(null);
+                          }}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              markStatus.mutate({ caseId: rc.testCase.id, status: rc.status, note: noteDraft });
+                              setNoteInputCase(null);
+                            }
+                            if (e.key === 'Escape') setNoteInputCase(null);
+                          }}
+                          style={{
+                            width: '100%', boxSizing: 'border-box', padding: '5px 10px',
+                            border: '1px solid var(--border-color)', borderRadius: 6,
+                            fontSize: '0.8125rem', fontFamily: 'inherit',
+                            background: 'var(--surface-base)', color: 'var(--gray-800)', outline: 'none',
+                          }}
+                        />
+                        <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', marginTop: 3 }}>
+                          Enter to save · Esc to dismiss
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   );
                 })}
               </div>
