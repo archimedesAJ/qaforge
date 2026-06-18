@@ -1056,7 +1056,7 @@ export function RunsPage() {
                     <td>
                       {run.status === 'open' && canExecute && (
                         <Button
-                          variant="ghost" size="sm"
+                          variant="primary" size="sm"
                           onClick={() => { setPendingRun(run); setPickerSuiteId(null); setCaseSearch(''); setStatusFilter('all'); setView('execute'); }}
                           style={{ fontSize: '0.8125rem' }}
                         >
@@ -1065,7 +1065,7 @@ export function RunsPage() {
                       )}
                       {run.status === 'closed' && (
                         <Button
-                          variant="ghost" size="sm"
+                          variant="secondary" size="sm"
                           onClick={() => { setViewingRun(run); setView('results'); }}
                           style={{ fontSize: '0.8125rem' }}
                         >
