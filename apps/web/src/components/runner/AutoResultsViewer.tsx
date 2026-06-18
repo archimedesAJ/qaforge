@@ -429,8 +429,8 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
                   }}>▾</div>
                 </div>
 
-                {/* Defect row — visible on failed/blocked results */}
-                {(result.status === 'fail' || result.status === 'blocked') && (
+                {/* Defect row — visible on failed results only */}
+                {result.status === 'fail' && (
                   <div style={{
                     padding: '6px 16px 8px 56px',
                     borderTop: '1px solid var(--border-color)',
