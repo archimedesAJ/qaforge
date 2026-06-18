@@ -788,13 +788,29 @@ export function RunsPage() {
                       )}
                     </div>{/* end inner row */}
 
-                    {/* Existing note (click to edit) */}
-                    {needsNote && rc.note && !isEditingNote && (
-                      <div
-                        style={{ padding: '0 16px 8px 44px', fontSize: '0.8125rem', color: chip.color, cursor: 'text' }}
-                        onClick={() => { setNoteInputCase(rc.testCase.id); setNoteDraft(rc.note ?? ''); }}
-                      >
-                        ↳ {rc.note}
+                    {/* Note row — shown for blocked / skipped / fail */}
+                    {needsNote && !isEditingNote && (
+                      <div style={{ padding: '0 16px 8px 44px' }}>
+                        {rc.note ? (
+                          /* Existing note — click to edit */
+                          <span
+                            style={{ fontSize: '0.8125rem', color: chip.color, cursor: 'text' }}
+                            onClick={() => { setNoteInputCase(rc.testCase.id); setNoteDraft(rc.note ?? ''); }}
+                          >
+                            ↳ {rc.note}
+                          </span>
+                        ) : (
+                          /* No note yet — persistent prompt */
+                          <button
+                            onClick={() => { setNoteInputCase(rc.testCase.id); setNoteDraft(''); }}
+                            style={{
+                              background: 'none', border: '1px dashed var(--border-color)', borderRadius: 5,
+                              color: 'var(--gray-400)', fontSize: '0.8125rem', padding: '2px 10px', cursor: 'pointer',
+                            }}
+                          >
+                            + Add reason
+                          </button>
+                        )}
                       </div>
                     )}
 
@@ -807,7 +823,9 @@ export function RunsPage() {
                           placeholder={notePlaceholder}
                           onChange={e => setNoteDraft(e.target.value)}
                           onBlur={() => {
-                            markStatus.mutate({ caseId: rc.testCase.id, status: rc.status, note: noteDraft });
+                            if (noteDraft.trim()) {
+                              markStatus.mutate({ caseId: rc.testCase.id, status: rc.status, note: noteDraft });
+                            }
                             setNoteInputCase(null);
                           }}
                           onKeyDown={e => {
