@@ -715,6 +715,235 @@ export async function exportAdminReportPdf(
   doc.save(`qaforge-report-${safe}.pdf`);
 }
 
+// ── Sprint Summary PDF ────────────────────────────────────────────────────────
+
+export interface SprintSummaryData {
+  name: string;
+  milestone: string | null;
+  stories: Array<{
+    label: string;
+    url: string | null;
+    storyStatus: string;
+    cases: Array<{ title: string; status: string; failureNote: string | null; errorMessage: string | null }>;
+  }>;
+  unlinked: Array<{ title: string; status: string; failureNote: string | null; errorMessage: string | null }>;
+  overall: { total: number; pass: number; fail: number; blocked: number; skipped: number; passRate: number | null };
+}
+
+export async function exportSprintSummaryPdf(plan: SprintSummaryData): Promise<void> {
+  const { jsPDF } = await import('jspdf');
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+  const PAGE_W = 210;
+  const MARGIN = 16;
+  const COL_W  = PAGE_W - MARGIN * 2;
+  let y        = MARGIN;
+
+  const primary = [29,  78, 216] as [number, number, number];
+  const gray900 = [17,  24,  39] as [number, number, number];
+  const gray700 = [55,  65,  81] as [number, number, number];
+  const gray500 = [107, 114, 128] as [number, number, number];
+  const gray400 = [156, 163, 175] as [number, number, number];
+  const gray200 = [229, 231, 235] as [number, number, number];
+  const green   = [22,  163,  74] as [number, number, number];
+  const red     = [220,  38,  38] as [number, number, number];
+  const amber   = [217, 119,   6] as [number, number, number];
+
+  function hrLine() {
+    doc.setDrawColor(...gray200);
+    doc.setLineWidth(0.3);
+    doc.line(MARGIN, y, PAGE_W - MARGIN, y);
+    y += 4;
+  }
+
+  function checkPage(needed = 10) {
+    if (y + needed > 277) { doc.addPage(); y = MARGIN; }
+  }
+
+  function statusColor(s: string): [number, number, number] {
+    if (s === 'pass')    return green;
+    if (s === 'fail')    return red;
+    if (s === 'blocked') return amber;
+    return gray400;
+  }
+
+  // ── Header ────────────────────────────────────────────────────
+  doc.setFillColor(...primary);
+  doc.rect(0, 0, PAGE_W, 33, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  doc.text('QAForge  ·  Sprint Summary Report', MARGIN, 10);
+  doc.text(
+    new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+    PAGE_W - MARGIN, 10, { align: 'right' }
+  );
+  const planLabel = plan.name.length > 52 ? plan.name.slice(0, 50) + '…' : plan.name;
+  doc.setFontSize(15);
+  doc.setFont('helvetica', 'bold');
+  doc.text(planLabel, MARGIN, 24);
+  if (plan.milestone) {
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Milestone: ${plan.milestone}`, PAGE_W - MARGIN, 24, { align: 'right' });
+  }
+  y = 41;
+
+  // ── Overall stats ─────────────────────────────────────────────
+  const { overall } = plan;
+  const passRate = overall.passRate ?? 0;
+  const statItems = [
+    { label: 'Pass rate', value: overall.passRate !== null ? `${passRate}%` : '—', color: passRate >= 80 ? green : passRate >= 50 ? amber : red },
+    { label: 'Passed',   value: String(overall.pass),    color: green },
+    { label: 'Failed',   value: String(overall.fail),    color: overall.fail    > 0 ? red   : gray400 },
+    { label: 'Blocked',  value: String(overall.blocked), color: overall.blocked > 0 ? amber : gray400 },
+    { label: 'Skipped',  value: String(overall.skipped), color: gray400 },
+    { label: 'Total',    value: String(overall.total),   color: gray900 },
+  ];
+  const statW = COL_W / statItems.length;
+  statItems.forEach((s, i) => {
+    const sx = MARGIN + i * statW + statW / 2;
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...s.color);
+    doc.text(s.value, sx, y + 7, { align: 'center' });
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...gray500);
+    doc.text(s.label, sx, y + 12.5, { align: 'center' });
+  });
+  y += 22;
+  hrLine();
+
+  // ── Story breakdown ───────────────────────────────────────────
+  if (plan.stories.length > 0) {
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...gray700);
+    doc.text('Story breakdown', MARGIN, y);
+    y += 7;
+
+    for (const story of plan.stories) {
+      checkPage(14);
+      const pass    = story.cases.filter(c => c.status === 'pass').length;
+      const total   = story.cases.length;
+      const sc      = statusColor(story.storyStatus);
+      const icon    = story.storyStatus === 'pass' ? '✓' : story.storyStatus === 'fail' ? '✗' : story.storyStatus === 'blocked' ? '⊘' : '◑';
+
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...sc);
+      doc.text(icon, MARGIN, y);
+      doc.setTextColor(...gray900);
+      const storyLabel = story.label.length > 70 ? story.label.slice(0, 68) + '…' : story.label;
+      doc.text(storyLabel, MARGIN + 6, y);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...gray500);
+      doc.text(`${pass}/${total} passed`, PAGE_W - MARGIN, y, { align: 'right' });
+      y += 5;
+
+      for (const c of story.cases) {
+        checkPage(6);
+        doc.setFontSize(7.5);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(...statusColor(c.status));
+        doc.text(c.status.padEnd(8), MARGIN + 6, y);
+        doc.setTextColor(...gray700);
+        const title = c.title.length > 65 ? c.title.slice(0, 63) + '…' : c.title;
+        doc.text(title, MARGIN + 22, y);
+        y += 5;
+        const note = c.failureNote || c.errorMessage;
+        if (note && c.status !== 'pass') {
+          checkPage(5);
+          doc.setFontSize(6.5);
+          doc.setTextColor(...gray400);
+          const truncNote = note.length > 100 ? note.slice(0, 98) + '…' : note;
+          doc.text('↳ ' + truncNote, MARGIN + 22, y);
+          y += 4;
+        }
+      }
+      y += 2;
+    }
+    hrLine();
+  }
+
+  // ── Unlinked cases ────────────────────────────────────────────
+  if (plan.unlinked.length > 0) {
+    checkPage(12);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...gray700);
+    doc.text('Unlinked cases', MARGIN, y);
+    y += 7;
+
+    for (const c of plan.unlinked) {
+      checkPage(6);
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...statusColor(c.status));
+      doc.text(c.status.padEnd(8), MARGIN, y);
+      doc.setTextColor(...gray700);
+      const title = c.title.length > 70 ? c.title.slice(0, 68) + '…' : c.title;
+      doc.text(title, MARGIN + 16, y);
+      y += 5;
+    }
+    hrLine();
+  }
+
+  // ── Blockers & reasons ────────────────────────────────────────
+  const blockers = [...plan.stories.flatMap(s => s.cases), ...plan.unlinked]
+    .filter(c => c.status === 'blocked' || c.status === 'skipped');
+
+  if (blockers.length > 0) {
+    checkPage(12);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...gray700);
+    doc.text('Blockers & reasons', MARGIN, y);
+    y += 7;
+
+    for (const c of blockers) {
+      checkPage(8);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...statusColor(c.status));
+      doc.text(c.status, MARGIN, y);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...gray700);
+      const title = c.title.length > 55 ? c.title.slice(0, 53) + '…' : c.title;
+      doc.text(title, MARGIN + 14, y);
+      y += 5;
+      const note = c.failureNote;
+      if (note) {
+        checkPage(5);
+        doc.setFontSize(7);
+        doc.setTextColor(...gray500);
+        const truncNote = note.length > 100 ? note.slice(0, 98) + '…' : note;
+        doc.text('↳ ' + truncNote, MARGIN + 14, y);
+        y += 4;
+      } else {
+        checkPage(5);
+        doc.setFontSize(7);
+        doc.setTextColor(...gray400);
+        doc.text('↳ no reason recorded', MARGIN + 14, y);
+        y += 4;
+      }
+    }
+  }
+
+  // ── Footer ────────────────────────────────────────────────────
+  const pageCount = doc.getNumberOfPages();
+  for (let p = 1; p <= pageCount; p++) {
+    doc.setPage(p);
+    doc.setFontSize(7);
+    doc.setTextColor(...gray500);
+    doc.text(`Generated by QAForge  ·  Page ${p} of ${pageCount}`, PAGE_W / 2, 290, { align: 'center' });
+  }
+
+  doc.save(`${plan.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}-sprint-summary.pdf`);
+}
+
 // ── Helpers ───────────────────────────────────────────────────
 
 function slugify(str: string): string {

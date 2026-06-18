@@ -5,6 +5,7 @@ import { AppLayout } from '../components/shared/AppLayout';
 import { Button, Modal, Input, Alert, EmptyState, Spinner, StatCard } from '../components/shared/ui';
 import { api } from '../lib/api';
 import { useProjectRole } from '../hooks/useProjectRole';
+import { exportSprintSummaryPdf } from '../lib/export';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,29 @@ interface UnassignedRun {
   env: string;
   status: string;
   startedAt: string;
+}
+
+interface SummaryCaseEntry {
+  id: string;
+  title: string;
+  status: string;
+  failureNote: string | null;
+  errorMessage: string | null;
+}
+
+interface SummaryStory {
+  key: string;
+  label: string;
+  url: string | null;
+  type: string;
+  storyStatus: string;
+  cases: SummaryCaseEntry[];
+}
+
+interface SprintSummary {
+  stories: SummaryStory[];
+  unlinked: SummaryCaseEntry[];
+  overall: { total: number; pass: number; fail: number; blocked: number; skipped: number; passRate: number | null };
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -103,6 +127,7 @@ export function PlansPage() {
   const [showAssign, setShowAssign] = useState(false);
   const [showArchiveConfirm, setShowArchiveConfirm] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [summaryView, setSummaryView] = useState<'runs' | 'summary'>('runs');
 
   // Create form
   const [newName, setNewName]         = useState('');
@@ -130,6 +155,12 @@ export function PlansPage() {
     queryKey: ['plan', selectedPlan?.id],
     queryFn: () => api.get<TestPlan>(`projects/${projectId}/plans/${selectedPlan!.id}`),
     enabled: !!selectedPlan,
+  });
+
+  const { data: sprintSummary, isLoading: loadingSummary } = useQuery({
+    queryKey: ['plan-summary', selectedPlan?.id],
+    queryFn: () => api.get<SprintSummary>(`projects/${projectId}/plans/${selectedPlan!.id}/summary`),
+    enabled: !!selectedPlan && summaryView === 'summary',
   });
 
   // ── Mutations ────────────────────────────────────────────────────────────
@@ -225,7 +256,26 @@ export function PlansPage() {
 
           {loadingDetail && !detail && <div style={{ padding: 32 }}><Spinner /></div>}
 
-          {detail && (
+          {/* Tab bar */}
+          <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '2px solid var(--border-color)' }}>
+            {(['runs', 'summary'] as const).map(tab => (
+              <button
+                key={tab}
+                onClick={() => setSummaryView(tab)}
+                style={{
+                  padding: '8px 20px', background: 'none', border: 'none', cursor: 'pointer',
+                  fontSize: '0.9rem', fontWeight: summaryView === tab ? 700 : 400,
+                  color: summaryView === tab ? 'var(--color-primary)' : 'var(--gray-500)',
+                  borderBottom: summaryView === tab ? '2px solid var(--color-primary)' : '2px solid transparent',
+                  marginBottom: -2,
+                }}
+              >
+                {tab === 'runs' ? 'Runs' : 'Sprint Summary'}
+              </button>
+            ))}
+          </div>
+
+          {summaryView === 'runs' && detail && (
             <>
               {/* Plan header card */}
               <div className="card" style={{ marginBottom: 20, padding: '20px 24px' }}>
@@ -327,6 +377,157 @@ export function PlansPage() {
                 )}
               </div>
             </>
+          )}
+
+          {summaryView === 'summary' && (
+            <div>
+              {loadingSummary && <div style={{ padding: 32 }}><Spinner /></div>}
+              {sprintSummary && (
+                <>
+                  {/* Export button */}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+                    <Button
+                      variant="secondary" size="sm"
+                      onClick={() => detail && exportSprintSummaryPdf({ name: detail.name, milestone: detail.milestone, ...sprintSummary })}
+                    >
+                      ↓ Export PDF
+                    </Button>
+                  </div>
+
+                  {/* Overall stats */}
+                  <div className="grid-4" style={{ marginBottom: 20 }}>
+                    <StatCard
+                      label="Pass rate"
+                      value={sprintSummary.overall.passRate !== null ? `${sprintSummary.overall.passRate}%` : '—'}
+                      color={sprintSummary.overall.passRate !== null
+                        ? sprintSummary.overall.passRate >= 80 ? 'var(--color-success)' : sprintSummary.overall.passRate >= 50 ? '#d97706' : '#dc2626'
+                        : undefined}
+                      sub={`${sprintSummary.overall.pass} of ${sprintSummary.overall.total} passed`}
+                    />
+                    <StatCard label="Failed"  value={sprintSummary.overall.fail}    color={sprintSummary.overall.fail    > 0 ? '#dc2626' : undefined} sub={sprintSummary.overall.fail > 0 ? 'need fixes' : 'all good'} />
+                    <StatCard label="Blocked" value={sprintSummary.overall.blocked} color={sprintSummary.overall.blocked > 0 ? '#d97706' : undefined} sub={sprintSummary.overall.blocked > 0 ? 'investigate' : 'none'} />
+                    <StatCard label="Skipped" value={sprintSummary.overall.skipped} color="var(--gray-400)" sub={`${sprintSummary.overall.total} total cases`} />
+                  </div>
+
+                  {/* Story breakdown */}
+                  {sprintSummary.stories.length > 0 && (
+                    <div className="card" style={{ marginBottom: 20 }}>
+                      <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border-color)', fontWeight: 600, fontSize: '0.875rem', color: 'var(--gray-700)' }}>
+                        Story breakdown
+                      </div>
+                      {sprintSummary.stories.map(story => {
+                        const pass    = story.cases.filter(c => c.status === 'pass').length;
+                        const fail    = story.cases.filter(c => c.status === 'fail').length;
+                        const blocked = story.cases.filter(c => c.status === 'blocked').length;
+                        const total   = story.cases.length;
+                        const statusColor =
+                          story.storyStatus === 'pass'    ? 'var(--color-success)' :
+                          story.storyStatus === 'fail'    ? '#dc2626' :
+                          story.storyStatus === 'blocked' ? '#d97706' :
+                          story.storyStatus === 'partial' ? '#d97706' : 'var(--gray-400)';
+                        const statusIcon =
+                          story.storyStatus === 'pass' ? '✓' :
+                          story.storyStatus === 'fail' ? '✗' :
+                          story.storyStatus === 'blocked' ? '⊘' : '◑';
+                        return (
+                          <div key={story.key} style={{ borderBottom: '1px solid var(--border-color)', padding: '12px 20px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                              <span style={{ fontWeight: 700, color: statusColor, fontSize: '1rem', flexShrink: 0 }}>{statusIcon}</span>
+                              <div style={{ flex: 1 }}>
+                                {story.url ? (
+                                  <a href={story.url} target="_blank" rel="noopener noreferrer"
+                                    style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--gray-900)', textDecoration: 'none' }}
+                                    onClick={e => e.stopPropagation()}
+                                  >
+                                    {story.label} ↗
+                                  </a>
+                                ) : (
+                                  <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--gray-900)' }}>{story.label}</span>
+                                )}
+                              </div>
+                              <div style={{ display: 'flex', gap: 10, fontSize: '0.8125rem' }}>
+                                {pass    > 0 && <span style={{ color: 'var(--color-success)' }}>✓ {pass}</span>}
+                                {fail    > 0 && <span style={{ color: '#dc2626'             }}>✗ {fail}</span>}
+                                {blocked > 0 && <span style={{ color: '#d97706'             }}>⊘ {blocked}</span>}
+                                <span style={{ color: 'var(--gray-400)' }}>{pass}/{total}</span>
+                              </div>
+                            </div>
+                            <div style={{ paddingLeft: 26, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                              {story.cases.map(c => {
+                                const cColor =
+                                  c.status === 'pass'    ? 'var(--color-success)' :
+                                  c.status === 'fail'    ? '#dc2626' :
+                                  c.status === 'blocked' ? '#d97706' : 'var(--gray-400)';
+                                return (
+                                  <div key={c.id} style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                                    <span style={{ fontSize: '0.75rem', color: cColor, fontWeight: 700, flexShrink: 0, minWidth: 44 }}>{c.status}</span>
+                                    <span style={{ fontSize: '0.8125rem', color: 'var(--gray-700)' }}>{c.title}</span>
+                                    {(c.failureNote || c.errorMessage) && (
+                                      <span style={{ fontSize: '0.75rem', color: 'var(--gray-400)' }}>— {c.failureNote || c.errorMessage}</span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Unlinked cases */}
+                  {sprintSummary.unlinked.length > 0 && (
+                    <div className="card" style={{ marginBottom: 20 }}>
+                      <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border-color)', fontWeight: 600, fontSize: '0.875rem', color: 'var(--gray-700)' }}>
+                        Unlinked cases <span style={{ fontWeight: 400, color: 'var(--gray-400)', fontSize: '0.8125rem' }}>not tied to any story</span>
+                      </div>
+                      {sprintSummary.unlinked.map(c => {
+                        const cColor = c.status === 'pass' ? 'var(--color-success)' : c.status === 'fail' ? '#dc2626' : c.status === 'blocked' ? '#d97706' : 'var(--gray-400)';
+                        return (
+                          <div key={c.id} style={{ display: 'flex', gap: 10, padding: '9px 20px', borderBottom: '1px solid var(--border-color)', alignItems: 'baseline' }}>
+                            <span style={{ fontSize: '0.75rem', color: cColor, fontWeight: 700, minWidth: 50, flexShrink: 0 }}>{c.status}</span>
+                            <span style={{ fontSize: '0.875rem', color: 'var(--gray-800)' }}>{c.title}</span>
+                            {(c.failureNote || c.errorMessage) && (
+                              <span style={{ fontSize: '0.8125rem', color: 'var(--gray-400)' }}>— {c.failureNote || c.errorMessage}</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Blockers & reasons */}
+                  {(sprintSummary.overall.blocked > 0 || sprintSummary.stories.some(s => s.cases.some(c => c.status === 'skipped'))) && (
+                    <div className="card">
+                      <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border-color)', fontWeight: 600, fontSize: '0.875rem', color: 'var(--gray-700)' }}>
+                        Blockers &amp; reasons
+                      </div>
+                      {[...sprintSummary.stories.flatMap(s => s.cases), ...sprintSummary.unlinked]
+                        .filter(c => c.status === 'blocked' || c.status === 'skipped')
+                        .map(c => (
+                          <div key={c.id} style={{ display: 'flex', gap: 10, padding: '9px 20px', borderBottom: '1px solid var(--border-color)', alignItems: 'baseline' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: c.status === 'blocked' ? '#d97706' : 'var(--gray-400)', minWidth: 50, flexShrink: 0 }}>
+                              {c.status}
+                            </span>
+                            <span style={{ fontSize: '0.875rem', color: 'var(--gray-800)', fontWeight: 500 }}>{c.title}</span>
+                            {c.failureNote ? (
+                              <span style={{ fontSize: '0.8125rem', color: 'var(--gray-500)' }}>— {c.failureNote}</span>
+                            ) : (
+                              <span style={{ fontSize: '0.8125rem', color: 'var(--gray-300)', fontStyle: 'italic' }}>no reason recorded</span>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+                  )}
+
+                  {sprintSummary.stories.length === 0 && sprintSummary.unlinked.length === 0 && (
+                    <div className="card">
+                      <EmptyState icon="◈" title="No results yet" description="Assign runs with executed cases to see the sprint summary." />
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           )}
 
           {/* Assign run modal */}

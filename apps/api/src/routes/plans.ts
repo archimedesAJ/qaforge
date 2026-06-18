@@ -124,6 +124,115 @@ export const plansRoutes: FastifyPluginAsync = async (app) => {
     };
   });
 
+  // GET /:projectId/plans/:planId/summary — sprint summary
+  app.get('/:projectId/plans/:planId/summary', { preHandler: requireRole('viewer') }, async (req, reply) => {
+    const { planId } = req.params as { projectId: string; planId: string };
+
+    const runs = await prisma.testRun.findMany({
+      where: { planId },
+      select: { id: true },
+    });
+    const runIds = runs.map(r => r.id);
+
+    if (runIds.length === 0) {
+      return { stories: [], unlinked: [], overall: { total: 0, pass: 0, fail: 0, blocked: 0, skipped: 0, passRate: null } };
+    }
+
+    // All results across plan runs, newest first
+    const allResults = await prisma.runResult.findMany({
+      where: { runId: { in: runIds } },
+      orderBy: { executedAt: 'desc' },
+      select: {
+        id: true,
+        testCaseId: true,
+        status: true,
+        failureNote: true,
+        errorMessage: true,
+        executedAt: true,
+        testCase: { select: { title: true, type: true, lineageId: true } },
+      },
+    });
+
+    // Latest result per testCaseId
+    const latestMap = new Map<string, typeof allResults[0]>();
+    for (const r of allResults) {
+      if (!latestMap.has(r.testCaseId)) latestMap.set(r.testCaseId, r);
+    }
+    const latestResults = Array.from(latestMap.values());
+
+    // Collect lineageIds for CaseLink lookup
+    const lineageIds = [
+      ...new Set(
+        latestResults.map(r => {
+          const tc = r.testCase as { lineageId?: string | null } | null;
+          return tc?.lineageId ?? r.testCaseId;
+        })
+      ),
+    ];
+
+    const caseLinks = await prisma.caseLink.findMany({
+      where: { lineageId: { in: lineageIds } },
+    });
+
+    const linksByLineage: Record<string, typeof caseLinks> = {};
+    for (const link of caseLinks) {
+      if (!linksByLineage[link.lineageId]) linksByLineage[link.lineageId] = [];
+      linksByLineage[link.lineageId].push(link);
+    }
+
+    type CaseEntry = { id: string; title: string; status: string; failureNote: string | null; errorMessage: string | null };
+    type StoryGroup = { key: string; label: string; url: string | null; type: string; cases: CaseEntry[]; storyStatus: string };
+
+    const storyMap = new Map<string, StoryGroup>();
+    const unlinked: CaseEntry[] = [];
+
+    for (const r of latestResults) {
+      const tc = r.testCase as { title: string; type: string; lineageId?: string | null } | null;
+      const lineageId = tc?.lineageId ?? r.testCaseId;
+      const links = linksByLineage[lineageId] ?? [];
+      const storyLink = links.find(l => l.type === 'jira' || l.type === 'requirement') ?? links[0];
+      const entry: CaseEntry = {
+        id: r.testCaseId,
+        title: tc?.title ?? `Test #${r.testCaseId.slice(-6)}`,
+        status: r.status,
+        failureNote: r.failureNote,
+        errorMessage: r.errorMessage,
+      };
+      if (storyLink) {
+        const key = storyLink.url ?? storyLink.label;
+        if (!storyMap.has(key)) {
+          storyMap.set(key, { key, label: storyLink.label, url: storyLink.url, type: storyLink.type, cases: [], storyStatus: 'not_run' });
+        }
+        storyMap.get(key)!.cases.push(entry);
+      } else {
+        unlinked.push(entry);
+      }
+    }
+
+    // Compute story-level status
+    const stories = Array.from(storyMap.values()).map(s => {
+      const statuses = s.cases.map(c => c.status);
+      let storyStatus: string;
+      if (statuses.every(st => st === 'pass')) storyStatus = 'pass';
+      else if (statuses.some(st => st === 'fail')) storyStatus = 'fail';
+      else if (statuses.some(st => st === 'blocked')) storyStatus = 'blocked';
+      else if (statuses.some(st => st === 'pass')) storyStatus = 'partial';
+      else storyStatus = 'not_run';
+      return { ...s, storyStatus };
+    });
+
+    // Overall counts
+    const counts = { pass: 0, fail: 0, blocked: 0, skipped: 0 };
+    for (const r of latestResults) {
+      const k = r.status as keyof typeof counts;
+      if (k in counts) counts[k]++;
+    }
+    const total = latestResults.length;
+    const passRate = total > 0 ? Math.round((counts.pass / total) * 100) : null;
+
+    return { stories, unlinked, overall: { ...counts, total, passRate } };
+  });
+
   // PUT /:projectId/plans/:planId — update plan metadata
   app.put('/:projectId/plans/:planId', { preHandler: requireRole('editor') }, async (req, reply) => {
     const { planId } = req.params as { projectId: string; planId: string };
