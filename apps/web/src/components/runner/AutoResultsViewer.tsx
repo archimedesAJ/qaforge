@@ -80,6 +80,16 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [summaryText, setSummaryText] = useState('');
 
+  // Note editing state (blocked / skipped / fail on closed runs)
+  const [noteInputResult, setNoteInputResult] = useState<number | null>(null);
+  const [noteDraft, setNoteDraft] = useState('');
+
+  const updateNote = useMutation({
+    mutationFn: ({ resultId, note }: { resultId: number; note: string }) =>
+      api.patch(`projects/${projectId}/runs/${runId}/results/${resultId}/note`, { note }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['run-results', runId] }),
+  });
+
   // Defect filing state
   const [filingFor, setFilingFor] = useState<RunResult | null>(null);
   const [editingDefect, setEditingDefect] = useState<{ defect: Defect; resultId: number } | null>(null);
@@ -283,26 +293,65 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
             .filter(r => r.status === 'blocked' || r.status === 'skipped')
             .map(r => {
               const c = STATUS_CONFIG[r.status] ?? STATUS_CONFIG['skipped'];
+              const isEditing = noteInputResult === r.id;
               return (
-                <div key={r.id} style={{ display: 'flex', gap: 10, marginBottom: 7, alignItems: 'baseline' }}>
-                  <span style={{
-                    fontSize: '0.75rem', fontWeight: 700, color: c.color,
-                    background: c.bg, border: `1px solid ${c.border}`,
-                    padding: '1px 6px', borderRadius: 4, flexShrink: 0,
-                  }}>
-                    {r.status}
-                  </span>
-                  <span style={{ fontSize: '0.875rem', color: 'var(--gray-800)', fontWeight: 500 }}>
-                    {r.testCase?.title ?? `Test #${r.testCaseId.slice(-6)}`}
-                  </span>
-                  {r.failureNote ? (
-                    <span style={{ fontSize: '0.8125rem', color: 'var(--gray-500)' }}>
-                      — {r.failureNote}
+                <div key={r.id} style={{ marginBottom: 8 }}>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'baseline' }}>
+                    <span style={{
+                      fontSize: '0.75rem', fontWeight: 700, color: c.color,
+                      background: c.bg, border: `1px solid ${c.border}`,
+                      padding: '1px 6px', borderRadius: 4, flexShrink: 0,
+                    }}>
+                      {r.status}
                     </span>
-                  ) : (
-                    <span style={{ fontSize: '0.8125rem', color: 'var(--gray-300)', fontStyle: 'italic' }}>
-                      no reason recorded
+                    <span style={{ fontSize: '0.875rem', color: 'var(--gray-800)', fontWeight: 500 }}>
+                      {r.testCase?.title ?? `Test #${r.testCaseId.slice(-6)}`}
                     </span>
+                    {!isEditing && (r.failureNote ? (
+                      <span
+                        style={{ fontSize: '0.8125rem', color: 'var(--gray-500)', cursor: 'text' }}
+                        onClick={() => { setNoteInputResult(r.id); setNoteDraft(r.failureNote ?? ''); }}
+                      >
+                        — {r.failureNote}
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => { setNoteInputResult(r.id); setNoteDraft(''); }}
+                        style={{
+                          background: 'none', border: '1px dashed var(--border-color)', borderRadius: 5,
+                          color: 'var(--gray-400)', fontSize: '0.8125rem', padding: '1px 8px', cursor: 'pointer',
+                        }}
+                      >
+                        + Add reason
+                      </button>
+                    ))}
+                  </div>
+                  {isEditing && (
+                    <div style={{ marginTop: 6, paddingLeft: 2 }}>
+                      <input
+                        autoFocus
+                        value={noteDraft}
+                        placeholder={r.status === 'blocked' ? 'Block reason…' : 'Skip reason…'}
+                        onChange={e => setNoteDraft(e.target.value)}
+                        onBlur={() => {
+                          if (noteDraft.trim()) updateNote.mutate({ resultId: r.id, note: noteDraft });
+                          setNoteInputResult(null);
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') { updateNote.mutate({ resultId: r.id, note: noteDraft }); setNoteInputResult(null); }
+                          if (e.key === 'Escape') setNoteInputResult(null);
+                        }}
+                        style={{
+                          width: '100%', boxSizing: 'border-box', padding: '5px 10px',
+                          border: '1px solid var(--border-color)', borderRadius: 6,
+                          fontSize: '0.8125rem', fontFamily: 'inherit',
+                          background: 'var(--surface-base)', color: 'var(--gray-800)', outline: 'none',
+                        }}
+                      />
+                      <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', marginTop: 3 }}>
+                        Enter to save · Esc to dismiss
+                      </div>
+                    </div>
                   )}
                 </div>
               );

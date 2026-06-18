@@ -68,18 +68,19 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
   // PUT /projects/:projectId/runs/:runId/cases/:caseId/status — editor+
   app.put('/:projectId/runs/:runId/cases/:caseId/status', { preHandler: requireRole('editor') }, async (req, reply) => {
     const { runId, caseId } = req.params as { projectId: string; runId: string; caseId: string };
-    const { status } = req.body as { status: string };
+    const { status, note } = req.body as { status: string; note?: string };
     const valid = ['not_run', 'pass', 'fail', 'blocked', 'skipped'];
     if (!valid.includes(status)) return reply.code(400).send({ error: 'Invalid status' });
 
+    const noteValue = note?.trim() || null;
+
     const updated = await prisma.runCase.update({
       where: { runId_testCaseId: { runId, testCaseId: caseId } },
-      data: { status },
+      data: { status, ...(noteValue !== undefined && { note: noteValue }) },
     });
 
-    // Keep RunResult in sync so results viewer and aggregation reflect quick-marks.
-    // If a full-runner result already exists, update its status. Otherwise create
-    // a minimal entry (no steps/duration — this was a quick-mark, not a full run).
+    // Keep RunResult in sync — also propagate the note to failureNote so it
+    // appears in the results viewer and PDF export.
     if (status !== 'not_run') {
       const testCase = await prisma.testCase.findUnique({
         where: { id: caseId },
@@ -93,7 +94,7 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
       if (existing) {
         await prisma.runResult.update({
           where: { id: existing.id },
-          data: { status, executedAt: new Date() },
+          data: { status, executedAt: new Date(), ...(noteValue !== undefined && { failureNote: noteValue }) },
         });
       } else {
         await prisma.runResult.create({
@@ -102,6 +103,7 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
             testCaseId: caseId,
             testCaseVersion: testCase?.version ?? 1,
             status,
+            ...(noteValue && { failureNote: noteValue }),
           },
         });
       }
@@ -200,6 +202,18 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
       },
     });
     return { results };
+  });
+
+  // PATCH /projects/:projectId/runs/:runId/results/:resultId/note — editor+
+  app.patch('/:projectId/runs/:runId/results/:resultId/note', { preHandler: requireRole('editor') }, async (req, reply) => {
+    const { resultId } = req.params as { projectId: string; runId: string; resultId: string };
+    const { note } = req.body as { note?: string };
+    const noteValue = (note ?? '').trim() || null;
+    const updated = await prisma.runResult.update({
+      where: { id: parseInt(resultId, 10) },
+      data: { failureNote: noteValue },
+    });
+    return updated;
   });
 
   // POST /projects/:projectId/runs/:runId/results — editor+
