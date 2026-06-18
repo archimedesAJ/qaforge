@@ -244,7 +244,7 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
     // ── Base queries (always run, unaffected by date range) ──────
     const [
       totalUsers, activatedUsers, projects, recentRuns,
-      openDefectsGroups, openRunsCount, flakyGroups,
+      openDefectsGroups, openRunsCount, flakyGroups, activePlans,
     ] = await Promise.all([
       prisma.user.count(),
       prisma.user.count({ where: { activated: true } }),
@@ -279,7 +279,38 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         where: { score: { gt: 0 } },
         _count: { id: true },
       }),
+      // Active sprint plans with result counts for sprint health
+      prisma.testPlan.findMany({
+        where: { status: 'active' },
+        select: {
+          id: true,
+          projectId: true,
+          name: true,
+          milestone: true,
+          runs: {
+            select: {
+              results: { select: { status: true } },
+            },
+          },
+        },
+      }),
     ]);
+
+    // Build per-project active plan map with sprint pass rate
+    type ActivePlanInfo = { id: string; name: string; milestone: string | null; passRate: number | null; failCount: number; blockedCount: number };
+    const activePlanByProject: Record<string, ActivePlanInfo> = {};
+    for (const plan of activePlans) {
+      const allResults = plan.runs.flatMap(r => r.results);
+      const conclusive = allResults.filter(r => r.status === 'pass' || r.status === 'fail');
+      const passCount  = conclusive.filter(r => r.status === 'pass').length;
+      const failCount  = allResults.filter(r => r.status === 'fail').length;
+      const blockedCount = allResults.filter(r => r.status === 'blocked').length;
+      const sprintPassRate = conclusive.length > 0 ? Math.round((passCount / conclusive.length) * 100) : null;
+      activePlanByProject[plan.projectId] = {
+        id: plan.id, name: plan.name, milestone: plan.milestone,
+        passRate: sprintPassRate, failCount, blockedCount,
+      };
+    }
 
     const openDefectsMap: Record<string, number> = {};
     for (const g of openDefectsGroups) openDefectsMap[g.projectId] = g._count.id;
@@ -410,6 +441,10 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
     const totalCases       = projects.reduce((s, p) => s + p._count.cases, 0);
     const totalOpenDefects = openDefectsGroups.reduce((s, g) => s + g._count.id, 0);
 
+    const activeSprints  = activePlans.length;
+    const sprintsAtRisk  = Object.values(activePlanByProject)
+      .filter(ap => ap.failCount > 0 || (ap.passRate !== null && ap.passRate < 70)).length;
+
     return {
       stats: {
         totalProjects: projects.length,
@@ -418,6 +453,8 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         totalCases,
         openRuns: openRunsCount,
         openDefects: totalOpenDefects,
+        activeSprints,
+        sprintsAtRisk,
       },
       projects: projects.map(p => {
         const cov        = covStateMap[p.id] ?? { healthy: 0, stale: 0, failing: 0 };
@@ -438,6 +475,7 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
             : null,
           coverageStats: cov,
           flakyCount: flakyMap[p.id] ?? 0,
+          activePlan: activePlanByProject[p.id] ?? null,
         };
       }),
       recentRuns,

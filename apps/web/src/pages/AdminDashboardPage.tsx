@@ -19,6 +19,17 @@ interface OverviewStats {
   totalCases: number;
   openRuns: number;
   openDefects: number;
+  activeSprints: number;
+  sprintsAtRisk: number;
+}
+
+interface ActivePlan {
+  id: string;
+  name: string;
+  milestone: string | null;
+  passRate: number | null;
+  failCount: number;
+  blockedCount: number;
 }
 
 interface LatestRun {
@@ -42,6 +53,7 @@ interface ProjectHealth {
   coveragePct: number | null;
   coverageStats: { healthy: number; stale: number; failing: number };
   flakyCount: number;
+  activePlan: ActivePlan | null;
 }
 
 interface RecentRun {
@@ -335,7 +347,7 @@ export function AdminDashboardPage() {
         {!isLoading && stats && (
           <>
             {/* System stats */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 14, marginBottom: 28 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 14, marginBottom: 14 }}>
               <StatCard label="Projects"       value={stats.totalProjects} />
               <StatCard label="Active users"   value={stats.activatedUsers}
                 sub={`${stats.totalUsers - stats.activatedUsers} pending`}
@@ -347,6 +359,22 @@ export function AdminDashboardPage() {
                 color={stats.openDefects > 0 ? '#DC2626' : undefined} />
               <StatCard label="Pending invites" value={stats.totalUsers - stats.activatedUsers}
                 color={stats.totalUsers - stats.activatedUsers > 0 ? 'var(--gray-500)' : undefined} />
+            </div>
+
+            {/* Sprint health KPIs */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14, marginBottom: 28 }}>
+              <StatCard
+                label="Active sprints"
+                value={stats.activeSprints}
+                color={stats.activeSprints > 0 ? 'var(--color-primary)' : undefined}
+                sub={stats.activeSprints > 0 ? `${stats.activeSprints} plan${stats.activeSprints !== 1 ? 's' : ''} in progress across projects` : 'No active sprint plans'}
+              />
+              <StatCard
+                label="Sprints at risk"
+                value={stats.sprintsAtRisk}
+                color={stats.sprintsAtRisk > 0 ? '#DC2626' : 'var(--color-success)'}
+                sub={stats.sprintsAtRisk > 0 ? 'failing tests or pass rate below 70%' : 'all sprints on track'}
+              />
             </div>
 
             {/* Coverage KPI banner */}
@@ -432,7 +460,7 @@ export function AdminDashboardPage() {
                                   background: stale === 'ok' ? '#16A34A' : stale === 'stale' ? '#D97706' : '#D1D5DB',
                                 }} title={stale === 'ok' ? 'Active recently' : stale === 'stale' ? 'No run in 30+ days' : 'No runs yet'} />
                                 <div>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                                     <span style={{ fontWeight: 600, fontSize: '0.9rem', color: stale === 'none' ? 'var(--gray-400)' : 'var(--gray-900)' }}>{p.name}</span>
                                     {stale === 'none' && (
                                       <span style={{
@@ -452,6 +480,21 @@ export function AdminDashboardPage() {
                                         Stale
                                       </span>
                                     )}
+                                    {p.activePlan && (() => {
+                                      const ap = p.activePlan!;
+                                      const atRisk = ap.failCount > 0 || (ap.passRate !== null && ap.passRate < 70);
+                                      return (
+                                        <span title={`${ap.name}${ap.milestone ? ` · ${ap.milestone}` : ''} — ${ap.passRate !== null ? `${ap.passRate}% pass` : 'no results yet'}${ap.failCount > 0 ? `, ${ap.failCount} failing` : ''}${ap.blockedCount > 0 ? `, ${ap.blockedCount} blocked` : ''}`} style={{
+                                          fontSize: '0.6875rem', fontWeight: 600, padding: '1px 7px', borderRadius: 20,
+                                          background: atRisk ? '#FEE2E2' : '#DCFCE7',
+                                          color:      atRisk ? '#DC2626' : '#16A34A',
+                                          border:     `1px solid ${atRisk ? '#FECACA' : '#BBF7D0'}`,
+                                          letterSpacing: '0.02em', cursor: 'default',
+                                        }}>
+                                          {atRisk ? '⚠ ' : '✓ '}{ap.milestone ?? ap.name}
+                                        </span>
+                                      );
+                                    })()}
                                   </div>
                                   <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', fontFamily: 'monospace' }}>{p.slug}</div>
                                 </div>
