@@ -358,7 +358,6 @@ export function AdminDashboardPage() {
               const totalFlaky    = projects.reduce((s, p) => s + p.flakyCount, 0);
               const totalFailing  = projects.reduce((s, p) => s + p.coverageStats.failing, 0);
               const totalStale    = projects.reduce((s, p) => s + p.coverageStats.stale, 0);
-              const totalHealthy  = projects.reduce((s, p) => s + p.coverageStats.healthy, 0);
               return (
                 <div style={{
                   background: 'var(--surface-base)', border: '1px solid var(--border-color)',
@@ -370,7 +369,7 @@ export function AdminDashboardPage() {
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
                     {[
                       { label: 'Avg pass rate',      value: avgPassRate  !== null ? `${avgPassRate}%`  : '—', color: kpiColor(avgPassRate,  [90, 70]), sub: `across ${withPassRate.length} project${withPassRate.length !== 1 ? 's' : ''} with data` },
-                      { label: 'Avg exec. coverage', value: avgCoverage  !== null ? `${avgCoverage}%` : '—', color: kpiColor(avgCoverage, [80, 60]), sub: `${totalHealthy} healthy · cases run ÷ total` },
+                      { label: 'Avg exec. coverage', value: avgCoverage  !== null ? `${avgCoverage}%` : '—', color: kpiColor(avgCoverage, [80, 60]), sub: `across ${withCoverage.length} project${withCoverage.length !== 1 ? 's' : ''} with data` },
                       { label: 'Failing cases',    value: totalFailing, color: totalFailing > 0 ? '#dc2626' : 'var(--color-success)', sub: `${totalStale} stale` },
                       { label: 'Flaky tests',      value: totalFlaky,   color: totalFlaky  > 0 ? '#d97706' : 'var(--color-success)', sub: 'across all projects' },
                       { label: 'Open defects',     value: stats!.openDefects, color: stats!.openDefects > 0 ? '#dc2626' : 'var(--color-success)', sub: 'across all projects' },

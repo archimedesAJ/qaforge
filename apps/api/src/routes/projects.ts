@@ -421,7 +421,7 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
       },
       projects: projects.map(p => {
         const cov        = covStateMap[p.id] ?? { healthy: 0, stale: 0, failing: 0 };
-        const executed   = executedCasesMap[p.id] ?? 0;
+        const executed   = executedCasesMap[p.id]; // undefined = no runs in scope (show —, not 0%)
         const totalCases = p._count.cases;
         return {
           id: p.id,
@@ -433,7 +433,9 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
           openDefects: openDefectsMap[p.id] ?? 0,
           latestRun: p.runs[0] ?? null,
           passRate: passRateMap[p.id] ?? null,
-          coveragePct: totalCases > 0 ? Math.round((executed / totalCases) * 100) : null,
+          coveragePct: executed !== undefined && totalCases > 0
+            ? Math.round((executed / totalCases) * 100)
+            : null,
           coverageStats: cov,
           flakyCount: flakyMap[p.id] ?? 0,
         };
