@@ -115,6 +115,30 @@ export function ProjectsPage() {
   );
 }
 
+// ── Helpers ───────────────────────────────────────────────────
+const AVATAR_PALETTES = [
+  { bg: '#DBEAFE', color: '#1D4ED8' },
+  { bg: '#D1FAE5', color: '#065F46' },
+  { bg: '#EDE9FE', color: '#5B21B6' },
+  { bg: '#FEE2E2', color: '#991B1B' },
+  { bg: '#FEF3C7', color: '#92400E' },
+  { bg: '#FCE7F3', color: '#9D174D' },
+  { bg: '#CCFBF1', color: '#115E59' },
+  { bg: '#E0E7FF', color: '#3730A3' },
+];
+
+function projectInitials(name: string): string {
+  const words = name.trim().split(/\s+/);
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
+}
+
+function projectPalette(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return AVATAR_PALETTES[hash % AVATAR_PALETTES.length];
+}
+
 // ── Project card ──────────────────────────────────────────────
 function ProjectCard({ project, onClick }: { project: Project; onClick: () => void }) {
   return (
@@ -140,18 +164,24 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
         (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)';
       }}
     >
-      {/* Project icon */}
-      <div style={{
-        width: 44, height: 44,
-        background: 'var(--color-primary-light)',
-        border: '1px solid #bfdbfe',
-        borderRadius: 10,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: '1.25rem',
-        marginBottom: 14,
-      }}>
-        🧪
-      </div>
+      {/* Project avatar */}
+      {(() => {
+        const pal = projectPalette(project.name);
+        return (
+          <div style={{
+            width: 44, height: 44,
+            background: pal.bg,
+            borderRadius: 10,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '1rem', fontWeight: 700, letterSpacing: '0.02em',
+            color: pal.color,
+            marginBottom: 14,
+            userSelect: 'none',
+          }}>
+            {projectInitials(project.name)}
+          </div>
+        );
+      })()}
 
       <div style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--gray-900)', marginBottom: 4 }}>
         {project.name}
