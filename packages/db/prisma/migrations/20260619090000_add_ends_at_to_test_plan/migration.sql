@@ -1,0 +1,1 @@
+ALTER TABLE "TestPlan" ADD COLUMN "endsAt" TIMESTAMP(3);

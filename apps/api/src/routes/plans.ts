@@ -7,6 +7,7 @@ const CreatePlanSchema = z.object({
   name:        z.string().min(1),
   milestone:   z.string().optional(),
   description: z.string().optional(),
+  endsAt:      z.string().datetime().optional(),
 });
 
 const UpdatePlanSchema = z.object({
@@ -14,6 +15,7 @@ const UpdatePlanSchema = z.object({
   milestone:   z.string().optional(),
   description: z.string().optional(),
   status:      z.enum(['active', 'archived']).optional(),
+  endsAt:      z.string().datetime().nullable().optional(),
 });
 
 export const plansRoutes: FastifyPluginAsync = async (app) => {
@@ -71,6 +73,7 @@ export const plansRoutes: FastifyPluginAsync = async (app) => {
         name: body.name.trim(),
         milestone: body.milestone?.trim() || null,
         description: body.description?.trim() || null,
+        endsAt: body.endsAt ? new Date(body.endsAt) : null,
         createdById: userId,
       },
       include: { createdBy: { select: { id: true, name: true } } },
@@ -248,6 +251,7 @@ export const plansRoutes: FastifyPluginAsync = async (app) => {
         ...(body.milestone   !== undefined && { milestone: body.milestone.trim() || null }),
         ...(body.description !== undefined && { description: body.description.trim() || null }),
         ...(body.status      !== undefined && { status: body.status }),
+        ...(body.endsAt      !== undefined && { endsAt: body.endsAt ? new Date(body.endsAt) : null }),
       },
       include: { createdBy: { select: { id: true, name: true } } },
     });

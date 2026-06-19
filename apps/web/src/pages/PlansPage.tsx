@@ -36,6 +36,7 @@ interface TestPlan {
   milestone: string | null;
   description: string | null;
   status: string;
+  endsAt: string | null;
   createdAt: string;
   createdBy: { id: string; name: string };
   runs: PlanRun[];
@@ -133,6 +134,7 @@ export function PlansPage() {
   const [newName, setNewName]         = useState('');
   const [newMilestone, setNewMilestone] = useState('');
   const [newDesc, setNewDesc]         = useState('');
+  const [newEndsAt, setNewEndsAt]     = useState('');
   const [createError, setCreateError] = useState('');
 
   // ── Queries ──────────────────────────────────────────────────────────────
@@ -166,12 +168,12 @@ export function PlansPage() {
   // ── Mutations ────────────────────────────────────────────────────────────
 
   const createPlan = useMutation({
-    mutationFn: (body: { name: string; milestone?: string; description?: string }) =>
+    mutationFn: (body: { name: string; milestone?: string; description?: string; endsAt?: string }) =>
       api.post<TestPlan>(`projects/${projectId}/plans`, body),
     onSuccess: (plan) => {
       qc.invalidateQueries({ queryKey: ['plans', projectId] });
       setShowCreate(false);
-      setNewName(''); setNewMilestone(''); setNewDesc(''); setCreateError('');
+      setNewName(''); setNewMilestone(''); setNewDesc(''); setNewEndsAt(''); setCreateError('');
       setSelectedPlan(plan);
     },
     onError: (err: Error) => setCreateError(err.message),
@@ -702,6 +704,7 @@ export function PlansPage() {
                   name: newName.trim(),
                   milestone: newMilestone.trim() || undefined,
                   description: newDesc.trim() || undefined,
+                  endsAt: newEndsAt ? new Date(newEndsAt).toISOString() : undefined,
                 });
               }}
             >
@@ -729,6 +732,12 @@ export function PlansPage() {
           value={newDesc}
           onChange={e => setNewDesc(e.target.value)}
           placeholder="e.g. Full regression coverage for the v2 release"
+        />
+        <Input
+          label="Sprint end date (optional)"
+          type="date"
+          value={newEndsAt}
+          onChange={e => setNewEndsAt(e.target.value)}
         />
       </Modal>
     </AppLayout>

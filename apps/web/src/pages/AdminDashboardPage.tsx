@@ -27,9 +27,22 @@ interface ActivePlan {
   id: string;
   name: string;
   milestone: string | null;
+  endsAt: string | null;
   passRate: number | null;
   failCount: number;
   blockedCount: number;
+}
+
+interface RecentlyCompletedPlan {
+  id: string;
+  name: string;
+  milestone: string | null;
+  projectId: string;
+  projectName: string;
+  closedAt: string;
+  passRate: number | null;
+  failCount: number;
+  total: number;
 }
 
 interface LatestRun {
@@ -69,6 +82,7 @@ interface OverviewData {
   stats: OverviewStats;
   projects: ProjectHealth[];
   recentRuns: RecentRun[];
+  recentlyCompleted: RecentlyCompletedPlan[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -181,9 +195,10 @@ export function AdminDashboardPage() {
     },
   });
 
-  const stats    = data?.stats;
-  const projects = data?.projects ?? [];
-  const recent   = data?.recentRuns ?? [];
+  const stats             = data?.stats;
+  const projects          = data?.projects ?? [];
+  const recent            = data?.recentRuns ?? [];
+  const recentlyCompleted = data?.recentlyCompleted ?? [];
 
   function openReportModal() {
     if (!stats || projects.length === 0) return;
@@ -482,16 +497,25 @@ export function AdminDashboardPage() {
                                     )}
                                     {p.activePlan && (() => {
                                       const ap = p.activePlan!;
-                                      const atRisk = ap.failCount > 0 || (ap.passRate !== null && ap.passRate < 70);
+                                      const atRisk   = ap.failCount > 0 || (ap.passRate !== null && ap.passRate < 70);
+                                      const endsAt   = ap.endsAt ? new Date(ap.endsAt) : null;
+                                      const daysLeft = endsAt ? Math.ceil((endsAt.getTime() - Date.now()) / 86_400_000) : null;
+                                      const isOverdue = daysLeft !== null && daysLeft < 0;
+                                      const countdownLabel = daysLeft === null ? '' : isOverdue ? ` · ${Math.abs(daysLeft)}d overdue` : daysLeft === 0 ? ' · ends today' : ` · ${daysLeft}d left`;
+                                      const badgeStyle = isOverdue
+                                        ? { bg: '#FEF3C7', color: '#D97706', border: '#FDE68A' }
+                                        : atRisk
+                                          ? { bg: '#FEE2E2', color: '#DC2626', border: '#FECACA' }
+                                          : { bg: '#DCFCE7', color: '#16A34A', border: '#BBF7D0' };
+                                      const tooltip = `${ap.name}${ap.milestone ? ` · ${ap.milestone}` : ''} — ${ap.passRate !== null ? `${ap.passRate}% pass` : 'no results yet'}${ap.failCount > 0 ? `, ${ap.failCount} failing` : ''}${ap.blockedCount > 0 ? `, ${ap.blockedCount} blocked` : ''}${endsAt ? ` · ends ${endsAt.toLocaleDateString('en-GB')}` : ''}`;
                                       return (
-                                        <span title={`${ap.name}${ap.milestone ? ` · ${ap.milestone}` : ''} — ${ap.passRate !== null ? `${ap.passRate}% pass` : 'no results yet'}${ap.failCount > 0 ? `, ${ap.failCount} failing` : ''}${ap.blockedCount > 0 ? `, ${ap.blockedCount} blocked` : ''}`} style={{
+                                        <span title={tooltip} style={{
                                           fontSize: '0.6875rem', fontWeight: 600, padding: '1px 7px', borderRadius: 20,
-                                          background: atRisk ? '#FEE2E2' : '#DCFCE7',
-                                          color:      atRisk ? '#DC2626' : '#16A34A',
-                                          border:     `1px solid ${atRisk ? '#FECACA' : '#BBF7D0'}`,
+                                          background: badgeStyle.bg, color: badgeStyle.color,
+                                          border: `1px solid ${badgeStyle.border}`,
                                           letterSpacing: '0.02em', cursor: 'default',
                                         }}>
-                                          {atRisk ? '⚠ ' : '✓ '}{ap.milestone ?? ap.name}
+                                          {isOverdue ? '⚠ ' : atRisk ? '⊘ ' : '✓ '}{ap.milestone ?? ap.name}{countdownLabel}
                                         </span>
                                       );
                                     })()}
@@ -612,6 +636,57 @@ export function AdminDashboardPage() {
                 </div>
               )}
             </div>
+
+            {/* Recently completed sprints */}
+            {recentlyCompleted.length > 0 && (
+              <div className="card" style={{ padding: 0 }}>
+                <div className="card-header" style={{ padding: '14px 20px' }}>
+                  <span className="card-title">Recently completed sprints</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--gray-400)', marginLeft: 8 }}>last 14 days</span>
+                </div>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Project</th>
+                        <th>Sprint</th>
+                        <th>Milestone</th>
+                        <th style={{ textAlign: 'center' }}>Pass rate</th>
+                        <th style={{ textAlign: 'center' }}>Failures</th>
+                        <th style={{ textAlign: 'center' }}>Total</th>
+                        <th>Closed</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recentlyCompleted.map(plan => {
+                        const pct = plan.passRate;
+                        const pctColor = pct === null ? 'var(--gray-400)' : pct >= 90 ? '#16A34A' : pct >= 70 ? '#D97706' : '#DC2626';
+                        const pctBg   = pct === null ? 'var(--gray-100)'  : pct >= 90 ? '#DCFCE7'  : pct >= 70 ? '#FEF3C7'  : '#FEE2E2';
+                        return (
+                          <tr key={plan.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/projects/${plan.projectId}/plans`)}>
+                            <td style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--color-primary)' }}>{plan.projectName}</td>
+                            <td style={{ fontWeight: 500, color: 'var(--gray-800)' }}>{plan.name}</td>
+                            <td style={{ color: 'var(--gray-500)', fontSize: '0.8125rem' }}>{plan.milestone ?? '—'}</td>
+                            <td style={{ textAlign: 'center' }}>
+                              {pct !== null ? (
+                                <span style={{ padding: '2px 10px', borderRadius: 20, fontSize: '0.8125rem', fontWeight: 600, color: pctColor, background: pctBg }}>
+                                  {pct}%
+                                </span>
+                              ) : <span style={{ color: 'var(--gray-400)' }}>—</span>}
+                            </td>
+                            <td style={{ textAlign: 'center', color: plan.failCount > 0 ? '#DC2626' : 'var(--gray-400)', fontWeight: plan.failCount > 0 ? 700 : 400 }}>
+                              {plan.failCount > 0 ? plan.failCount : '—'}
+                            </td>
+                            <td style={{ textAlign: 'center', color: 'var(--gray-600)' }}>{plan.total}</td>
+                            <td style={{ color: 'var(--gray-400)', fontSize: '0.8125rem' }}>{fmtRelative(plan.closedAt)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             {/* Recent activity */}
             <div className="card" style={{ padding: 0 }}>

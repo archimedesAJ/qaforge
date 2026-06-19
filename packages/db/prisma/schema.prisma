@@ -196,6 +196,7 @@ model TestPlan {
   milestone   String?
   description String?
   status      String    @default("active") // active | archived
+  endsAt      DateTime?
   createdById String
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -231,6 +232,7 @@ model RunCase {
   runId      String
   testCaseId String
   status     String   @default("not_run") // not_run | pass | fail | blocked | skipped
+  note       String?  // QA reason for blocked / skipped / fail
   updatedAt  DateTime @updatedAt
 
   run      TestRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
