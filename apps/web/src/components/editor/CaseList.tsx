@@ -391,12 +391,12 @@ function CsvImportModal({
           }}>
             <div style={{ fontWeight: 600, marginBottom: 4 }}>Expected columns (header row required):</div>
             <code style={{ display: 'block', fontFamily: 'monospace', fontSize: '0.75rem' }}>
-              title, type, priority, tags, suite, steps
+              title, type, priority, tags, suite, preconditions, steps
             </code>
             <div style={{ marginTop: 6, color: 'var(--gray-500)' }}>
               <strong>title</strong> is required. <strong>type</strong>: manual · functional · ui_auto · api · perf · exploratory (default: manual).{' '}
               <strong>priority</strong>: p0–p3 (default: p2). <strong>tags</strong>: comma-separated. <strong>suite</strong>: exact suite name.{' '}
-              <strong>steps</strong>: pipe-separated, each step as <em>action {'>>'}  expected</em>.
+              <strong>preconditions</strong>: free text (e.g. "User is logged in"). <strong>steps</strong>: pipe-separated, each step as <em>action {'>>'}  expected</em>.
             </div>
           </div>
           {error && <div style={{ marginBottom: 12 }}><Alert type="error">{error}</Alert></div>}
@@ -410,7 +410,7 @@ function CsvImportModal({
             <button
               style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: '0.8125rem', color: 'var(--color-primary)' }}
               onClick={() => {
-                const csv = 'title,type,priority,tags,suite,steps\n"Login flow","manual","p1","auth,smoke","Auth Suite","Navigate to login page >> Login page is displayed|Enter email and password >> Fields accept input|Click Login >> User is redirected to dashboard"\n"API health check","api","p0","smoke","",""\n';
+                const csv = 'title,type,priority,tags,suite,preconditions,steps\n"Login flow","manual","p1","auth,smoke","Auth Suite","User has a valid account","Navigate to login page >> Login page is displayed|Enter email and password >> Fields accept input|Click Login >> User is redirected to dashboard"\n"API health check","api","p0","smoke","","",""\n';
                 const a = document.createElement('a');
                 a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
                 a.download = 'qaforge-import-template.csv';
