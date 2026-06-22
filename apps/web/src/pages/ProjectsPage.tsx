@@ -16,8 +16,17 @@ export function ProjectsPage() {
     queryFn: () => api.get<{ projects: Project[]; isSystemAdmin: boolean }>('projects'),
   });
 
-  const projects     = data?.projects ?? [];
+  const [search, setSearch] = useState('');
+
+  const projects      = data?.projects ?? [];
   const isSystemAdmin = data?.isSystemAdmin ?? false;
+
+  const filtered = search.trim()
+    ? projects.filter(p =>
+        p.name.toLowerCase().includes(search.toLowerCase()) ||
+        p.slug.toLowerCase().includes(search.toLowerCase())
+      )
+    : projects;
 
   function handleProjectClick(project: Project) {
     navigate(`/projects/${project.id}`);
@@ -70,6 +79,27 @@ export function ProjectsPage() {
 
         {isError && <Alert type="error">Failed to load projects. Is the API running?</Alert>}
 
+        {!isLoading && !isError && projects.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <input
+              type="search"
+              placeholder="Search projects…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{
+                width: '100%', maxWidth: 360,
+                padding: '8px 12px',
+                border: '1px solid var(--border-color)',
+                borderRadius: 8,
+                fontSize: '0.875rem',
+                outline: 'none',
+                background: 'var(--surface-base)',
+                color: 'var(--gray-900)',
+              }}
+            />
+          </div>
+        )}
+
         {!isLoading && !isError && projects.length === 0 && (
           <div className="card">
             <EmptyState
@@ -85,9 +115,15 @@ export function ProjectsPage() {
           </div>
         )}
 
-        {projects.length > 0 && (
+        {!isLoading && !isError && projects.length > 0 && filtered.length === 0 && (
+          <div className="card">
+            <EmptyState icon="🔍" title="No projects match" description={`No projects found for "${search}".`} />
+          </div>
+        )}
+
+        {filtered.length > 0 && (
           <div className="grid-3">
-            {projects.map(project => (
+            {filtered.map(project => (
               <ProjectCard
                 key={project.id}
                 project={project}
