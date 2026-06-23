@@ -99,25 +99,27 @@ export function ProjectsPage() {
                 color: 'var(--gray-900)',
               }}
             />
-            <select
-              value={categoryFilter}
-              onChange={e => setCategoryFilter(e.target.value as ProjectCategory | '')}
-              style={{
-                padding: '8px 12px',
-                border: '1px solid var(--border-color)',
-                borderRadius: 8,
-                fontSize: '0.875rem',
-                background: 'var(--surface-base)',
-                color: categoryFilter ? 'var(--gray-900)' : 'var(--gray-400)',
-                cursor: 'pointer',
-              }}
-            >
-              <option value="">All categories</option>
-              <option value="client-facing">Client-facing</option>
-              <option value="internal">Internal</option>
-              <option value="infrastructure">Infrastructure</option>
-              <option value="third-party">Third-party</option>
-            </select>
+            {isSystemAdmin && (
+              <select
+                value={categoryFilter}
+                onChange={e => setCategoryFilter(e.target.value as ProjectCategory | '')}
+                style={{
+                  padding: '8px 12px',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 8,
+                  fontSize: '0.875rem',
+                  background: 'var(--surface-base)',
+                  color: categoryFilter ? 'var(--gray-900)' : 'var(--gray-400)',
+                  cursor: 'pointer',
+                }}
+              >
+                <option value="">All categories</option>
+                <option value="client-facing">Client-facing</option>
+                <option value="internal">Internal</option>
+                <option value="infrastructure">Infrastructure</option>
+                <option value="third-party">Third-party</option>
+              </select>
+            )}
           </div>
         )}
 
@@ -148,6 +150,7 @@ export function ProjectsPage() {
               <ProjectCard
                 key={project.id}
                 project={project}
+                showCategory={isSystemAdmin}
                 onClick={() => handleProjectClick(project)}
               />
             ))}
@@ -167,6 +170,7 @@ export function ProjectsPage() {
           setShowCreate(false);
           navigate(`/projects/${project.id}`);
         }}
+        isSystemAdmin={isSystemAdmin}
       />
     </AppLayout>
   );
@@ -211,7 +215,7 @@ const CATEGORY_BADGE: Record<string, { background: string; color: string; border
 };
 
 // ── Project card ──────────────────────────────────────────────
-function ProjectCard({ project, onClick }: { project: Project; onClick: () => void }) {
+function ProjectCard({ project, showCategory, onClick }: { project: Project; showCategory: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
@@ -261,7 +265,7 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
         {project.slug}
       </div>
 
-      {project.category && (
+      {showCategory && project.category && (
         <div style={{ marginTop: 10 }}>
           <span style={{
             ...CATEGORY_BADGE[project.category],
@@ -289,11 +293,12 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
 
 // ── Create project modal ──────────────────────────────────────
 function CreateProjectModal({
-  open, onClose, onCreated,
+  open, onClose, onCreated, isSystemAdmin,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: (project: Project) => void;
+  isSystemAdmin: boolean;
 }) {
   const [name, setName]         = useState('');
   const [slug, setSlug]         = useState('');
@@ -370,26 +375,28 @@ function CreateProjectModal({
           hint="Used in URLs — lowercase letters, numbers, and hyphens only"
           required
         />
-        <div style={{ marginTop: 14 }}>
-          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--gray-700)', marginBottom: 6 }}>
-            Category <span style={{ color: 'var(--gray-400)', fontWeight: 400 }}>(optional)</span>
-          </label>
-          <select
-            value={category}
-            onChange={e => setCategory(e.target.value as ProjectCategory | '')}
-            style={{
-              width: '100%', padding: '8px 10px',
-              border: '1px solid var(--border-color)', borderRadius: 8,
-              fontSize: '0.875rem', background: 'var(--surface-base)', color: 'var(--gray-900)',
-            }}
-          >
-            <option value="">— Select category —</option>
-            <option value="client-facing">Client-facing</option>
-            <option value="internal">Internal</option>
-            <option value="infrastructure">Infrastructure</option>
-            <option value="third-party">Third-party</option>
-          </select>
-        </div>
+        {isSystemAdmin && (
+          <div style={{ marginTop: 14 }}>
+            <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--gray-700)', marginBottom: 6 }}>
+              Category <span style={{ color: 'var(--gray-400)', fontWeight: 400 }}>(optional)</span>
+            </label>
+            <select
+              value={category}
+              onChange={e => setCategory(e.target.value as ProjectCategory | '')}
+              style={{
+                width: '100%', padding: '8px 10px',
+                border: '1px solid var(--border-color)', borderRadius: 8,
+                fontSize: '0.875rem', background: 'var(--surface-base)', color: 'var(--gray-900)',
+              }}
+            >
+              <option value="">— Select category —</option>
+              <option value="client-facing">Client-facing</option>
+              <option value="internal">Internal</option>
+              <option value="infrastructure">Infrastructure</option>
+              <option value="third-party">Third-party</option>
+            </select>
+          </div>
+        )}
       </form>
     </Modal>
   );
