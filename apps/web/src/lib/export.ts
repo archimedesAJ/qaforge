@@ -259,15 +259,14 @@ export async function exportResultsPdf(
 
     const statusColor = r.status === 'pass' ? green : r.status === 'fail' ? red : amber;
     const title       = r.testCase?.title ?? `Result #${r.id}`;
-    const truncTitle  = title.length > 44 ? title.slice(0, 42) + '…' : title;
     const shortId     = r.testCase?.seqId != null ? fmtSeqId(r.testCase.seqId) : '—';
 
     doc.setFontSize(7.5);
     doc.setTextColor(...gray400);
     tx = MARGIN + 2;
-    doc.text(shortId,                       tx, y + 1); tx += colId;
+    doc.text(shortId,                          tx, y + 1); tx += colId;
     doc.setTextColor(...gray900);
-    doc.text(truncTitle,                    tx, y + 1); tx += colTitle;
+    doc.text(fitText(doc, title, colTitle - 2), tx, y + 1); tx += colTitle;
     doc.text(r.testCase?.type ?? '',        tx, y + 1); tx += colType;
     doc.setTextColor(...statusColor);
     doc.text(r.status.charAt(0).toUpperCase() + r.status.slice(1), tx, y + 1); tx += colStatus;
@@ -860,8 +859,9 @@ export async function exportSprintSummaryPdf(plan: SprintSummaryData): Promise<v
         const shortId = c.seqId != null ? fmtSeqId(c.seqId) : '';
         if (shortId) doc.text(shortId, MARGIN + 22, y);
         doc.setTextColor(...gray700);
-        const title = c.title.length > 55 ? c.title.slice(0, 53) + '…' : c.title;
-        doc.text(title, MARGIN + (shortId ? 40 : 22), y);
+        const titleX  = MARGIN + (shortId ? 40 : 22);
+        const titleMax = PAGE_W - MARGIN - titleX - 2;
+        doc.text(fitText(doc, c.title, titleMax), titleX, y);
         y += 5;
         const note = c.failureNote || c.errorMessage;
         if (note && c.status !== 'pass') {
@@ -897,8 +897,9 @@ export async function exportSprintSummaryPdf(plan: SprintSummaryData): Promise<v
       const shortId = c.seqId != null ? fmtSeqId(c.seqId) : '';
       if (shortId) doc.text(shortId, MARGIN + 16, y);
       doc.setTextColor(...gray700);
-      const title = c.title.length > 60 ? c.title.slice(0, 58) + '…' : c.title;
-      doc.text(title, MARGIN + (shortId ? 34 : 16), y);
+      const titleX  = MARGIN + (shortId ? 34 : 16);
+      const titleMax = PAGE_W - MARGIN - titleX - 2;
+      doc.text(fitText(doc, c.title, titleMax), titleX, y);
       y += 5;
     }
     hrLine();
@@ -958,6 +959,15 @@ export async function exportSprintSummaryPdf(plan: SprintSummaryData): Promise<v
 }
 
 // ── Helpers ───────────────────────────────────────────────────
+
+// Truncate text to fit within maxWidth mm using actual glyph measurements.
+// Must be called after setFontSize/setFont so measurements are accurate.
+function fitText(doc: { getTextWidth: (t: string) => number }, text: string, maxWidth: number): string {
+  if (doc.getTextWidth(text) <= maxWidth) return text;
+  let t = text;
+  while (t.length > 0 && doc.getTextWidth(t + '…') > maxWidth) t = t.slice(0, -1);
+  return t + '…';
+}
 
 function slugify(str: string): string {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
