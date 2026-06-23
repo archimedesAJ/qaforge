@@ -14,6 +14,11 @@ const CreateProjectSchema = z.object({
   category: z.enum(CATEGORIES).optional(),
 });
 
+const UpdateProjectSchema = z.object({
+  name:     z.string().min(1).max(100).optional(),
+  category: z.enum(CATEGORIES).nullable().optional(),
+});
+
 const InviteSchema = z.object({
   email: z.string().email(),
   role:  z.enum(['manager', 'editor', 'viewer']).default('editor'),
@@ -84,6 +89,25 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
     });
 
     return { ...project, pendingInvites };
+  });
+
+  // PATCH /projects/:projectId — update name / category — admin only
+  app.patch('/:projectId', { preHandler: requireRole('admin') }, async (req, reply) => {
+    const { projectId } = req.params as { projectId: string };
+    const body = UpdateProjectSchema.parse(req.body);
+
+    const existing = await prisma.project.findUnique({ where: { id: projectId } });
+    if (!existing) return reply.code(404).send({ error: 'Project not found' });
+
+    const updated = await prisma.project.update({
+      where: { id: projectId },
+      data: {
+        ...(body.name     !== undefined && { name: body.name.trim() }),
+        ...(body.category !== undefined && { category: body.category }),
+      },
+    });
+
+    return updated;
   });
 
   // GET /projects/:projectId/api-keys — admin only

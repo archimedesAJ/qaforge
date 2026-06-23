@@ -170,7 +170,6 @@ export function ProjectsPage() {
           setShowCreate(false);
           navigate(`/projects/${project.id}`);
         }}
-        isSystemAdmin={isSystemAdmin}
       />
     </AppLayout>
   );
@@ -293,20 +292,18 @@ function ProjectCard({ project, showCategory, onClick }: { project: Project; sho
 
 // ── Create project modal ──────────────────────────────────────
 function CreateProjectModal({
-  open, onClose, onCreated, isSystemAdmin,
+  open, onClose, onCreated,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: (project: Project) => void;
-  isSystemAdmin: boolean;
 }) {
-  const [name, setName]         = useState('');
-  const [slug, setSlug]         = useState('');
-  const [category, setCategory] = useState<ProjectCategory | ''>('');
-  const [error, setError]       = useState('');
+  const [name, setName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [error, setError] = useState('');
 
   const mutation = useMutation({
-    mutationFn: (data: { name: string; slug: string; category?: ProjectCategory }) =>
+    mutationFn: (data: { name: string; slug: string }) =>
       api.post<Project>('projects', data),
     onSuccess: onCreated,
     onError: (err: Error) => setError(err.message),
@@ -331,11 +328,11 @@ function CreateProjectModal({
     if (!slug.trim()) { setError('Slug is required'); return; }
     if (slug.trim().length > 50) { setError('Slug must be 50 characters or fewer'); return; }
     if (!/^[a-z0-9-]+$/.test(slug.trim())) { setError('Slug must be lowercase letters, numbers, and hyphens only'); return; }
-    mutation.mutate({ name: name.trim(), slug: slug.trim(), ...(category ? { category } : {}) });
+    mutation.mutate({ name: name.trim(), slug: slug.trim() });
   }
 
   function handleClose() {
-    setName(''); setSlug(''); setCategory(''); setError('');
+    setName(''); setSlug(''); setError('');
     onClose();
   }
 
@@ -375,28 +372,6 @@ function CreateProjectModal({
           hint="Used in URLs — lowercase letters, numbers, and hyphens only"
           required
         />
-        {isSystemAdmin && (
-          <div style={{ marginTop: 14 }}>
-            <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--gray-700)', marginBottom: 6 }}>
-              Category <span style={{ color: 'var(--gray-400)', fontWeight: 400 }}>(optional)</span>
-            </label>
-            <select
-              value={category}
-              onChange={e => setCategory(e.target.value as ProjectCategory | '')}
-              style={{
-                width: '100%', padding: '8px 10px',
-                border: '1px solid var(--border-color)', borderRadius: 8,
-                fontSize: '0.875rem', background: 'var(--surface-base)', color: 'var(--gray-900)',
-              }}
-            >
-              <option value="">— Select category —</option>
-              <option value="client-facing">Client-facing</option>
-              <option value="internal">Internal</option>
-              <option value="infrastructure">Infrastructure</option>
-              <option value="third-party">Third-party</option>
-            </select>
-          </div>
-        )}
       </form>
     </Modal>
   );

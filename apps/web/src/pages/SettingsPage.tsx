@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '../components/shared/AppLayout';
@@ -6,7 +6,8 @@ import { Button, Input, Select, Alert, Modal, Spinner, EmptyState, ConfirmDialog
 import { api } from '../lib/api';
 import { useProjectRole } from '../hooks/useProjectRole';
 
-type Tab = 'team' | 'apikeys' | 'environments' | 'notifications' | 'integrations' | 'danger';
+type Tab = 'general' | 'team' | 'apikeys' | 'environments' | 'notifications' | 'integrations' | 'danger';
+type ProjectCategory = 'client-facing' | 'internal' | 'infrastructure' | 'third-party';
 
 interface Member {
   userId: string;
@@ -55,17 +56,19 @@ const DEFAULT_NOTIFS: NotifSetting[] = [
 
 export function SettingsPage() {
   const { projectId } = useParams<{ projectId: string }>();
-  const [tab, setTab] = useState<Tab>('team');
+  const [tab, setTab] = useState<Tab>('general');
+  const { isAdmin }   = useProjectRole(projectId);
 
   if (!projectId) return null;
 
   const TABS: Array<{ id: Tab; label: string }> = [
-    { id: 'team',         label: 'Team'         },
-    { id: 'apikeys',      label: 'API keys'     },
-    { id: 'environments', label: 'Environments' },
-    { id: 'notifications',label: 'Notifications'},
-    { id: 'integrations', label: 'Integrations' },
-    { id: 'danger',       label: 'Danger zone'  },
+    { id: 'general',       label: 'General'      },
+    { id: 'team',          label: 'Team'         },
+    { id: 'apikeys',       label: 'API keys'     },
+    { id: 'environments',  label: 'Environments' },
+    { id: 'notifications', label: 'Notifications'},
+    { id: 'integrations',  label: 'Integrations' },
+    { id: 'danger',        label: 'Danger zone'  },
   ];
 
   return (
@@ -94,14 +97,96 @@ export function SettingsPage() {
           ))}
         </div>
 
-        {tab === 'team'         && <TeamTab         projectId={projectId} />}
-        {tab === 'apikeys'      && <ApiKeysTab       projectId={projectId} />}
-        {tab === 'environments' && <EnvironmentsTab  projectId={projectId} />}
-        {tab === 'notifications'&& <NotificationsTab projectId={projectId}  />}
-        {tab === 'integrations' && <IntegrationsTab  projectId={projectId} />}
-        {tab === 'danger'       && <DangerTab        projectId={projectId} />}
+        {tab === 'general'      && <GeneralTab       projectId={projectId} isAdmin={isAdmin} />}
+        {tab === 'team'         && <TeamTab          projectId={projectId} />}
+        {tab === 'apikeys'      && <ApiKeysTab        projectId={projectId} />}
+        {tab === 'environments' && <EnvironmentsTab   projectId={projectId} />}
+        {tab === 'notifications'&& <NotificationsTab  projectId={projectId} />}
+        {tab === 'integrations' && <IntegrationsTab   projectId={projectId} />}
+        {tab === 'danger'       && <DangerTab         projectId={projectId} />}
       </div>
     </AppLayout>
+  );
+}
+
+// ── General tab ───────────────────────────────────────────────
+function GeneralTab({ projectId, isAdmin }: { projectId: string; isAdmin: boolean }) {
+  const qc = useQueryClient();
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['project', projectId],
+    queryFn: () => api.get<{ name: string; category: ProjectCategory | null }>(`projects/${projectId}`),
+  });
+
+  const [name, setName]         = useState('');
+  const [category, setCategory] = useState<ProjectCategory | ''>('');
+  const [success, setSuccess]   = useState('');
+  const [error, setError]       = useState('');
+
+  useEffect(() => {
+    if (data) {
+      setName(data.name);
+      setCategory(data.category ?? '');
+    }
+  }, [data]);
+
+  const update = useMutation({
+    mutationFn: () => api.patch(`projects/${projectId}`, {
+      name: name.trim(),
+      category: category || null,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['project', projectId] });
+      qc.invalidateQueries({ queryKey: ['projects'] });
+      setSuccess('Project updated.');
+      setError('');
+      setTimeout(() => setSuccess(''), 3000);
+    },
+    onError: (err: Error) => setError(err.message),
+  });
+
+  if (isLoading) return <Spinner />;
+  if (!isAdmin) return <Alert type="error">Only project admins can edit general settings.</Alert>;
+
+  return (
+    <div style={{ maxWidth: 480 }}>
+      <h2 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 20 }}>General</h2>
+
+      {error   && <div style={{ marginBottom: 14 }}><Alert type="error">{error}</Alert></div>}
+      {success && <div style={{ marginBottom: 14 }}><Alert type="success">{success}</Alert></div>}
+
+      <Input
+        label="Project name"
+        value={name}
+        onChange={e => setName(e.target.value)}
+        placeholder="My Project"
+      />
+
+      <div style={{ marginTop: 14, marginBottom: 20 }}>
+        <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--gray-700)', marginBottom: 6 }}>
+          Category <span style={{ color: 'var(--gray-400)', fontWeight: 400 }}>(optional)</span>
+        </label>
+        <select
+          value={category}
+          onChange={e => setCategory(e.target.value as ProjectCategory | '')}
+          style={{
+            width: '100%', padding: '8px 10px',
+            border: '1px solid var(--border-color)', borderRadius: 8,
+            fontSize: '0.875rem', background: 'var(--surface-base)', color: 'var(--gray-900)',
+          }}
+        >
+          <option value="">— No category —</option>
+          <option value="client-facing">Client-facing</option>
+          <option value="internal">Internal</option>
+          <option value="infrastructure">Infrastructure</option>
+          <option value="third-party">Third-party</option>
+        </select>
+      </div>
+
+      <Button variant="primary" loading={update.isPending} onClick={() => update.mutate()}>
+        Save changes
+      </Button>
+    </div>
   );
 }
 
