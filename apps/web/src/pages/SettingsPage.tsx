@@ -5,6 +5,7 @@ import { AppLayout } from '../components/shared/AppLayout';
 import { Button, Input, Select, Alert, Modal, Spinner, EmptyState, ConfirmDialog } from '../components/shared/ui';
 import { api } from '../lib/api';
 import { useProjectRole } from '../hooks/useProjectRole';
+import { useAuthStore } from '../store/auth';
 
 type Tab = 'general' | 'team' | 'apikeys' | 'environments' | 'notifications' | 'integrations' | 'danger';
 type ProjectCategory = 'client-facing' | 'internal' | 'infrastructure' | 'third-party';
@@ -56,8 +57,9 @@ const DEFAULT_NOTIFS: NotifSetting[] = [
 
 export function SettingsPage() {
   const { projectId } = useParams<{ projectId: string }>();
-  const [tab, setTab] = useState<Tab>('general');
-  const { isAdmin }   = useProjectRole(projectId);
+  const [tab, setTab]   = useState<Tab>('general');
+  const { isAdmin }     = useProjectRole(projectId);
+  const isSystemAdmin   = useAuthStore(s => s.user?.systemAdmin ?? false);
 
   if (!projectId) return null;
 
@@ -97,7 +99,7 @@ export function SettingsPage() {
           ))}
         </div>
 
-        {tab === 'general'      && <GeneralTab       projectId={projectId} isAdmin={isAdmin} />}
+        {tab === 'general'      && <GeneralTab       projectId={projectId} isAdmin={isAdmin} isSystemAdmin={isSystemAdmin} />}
         {tab === 'team'         && <TeamTab          projectId={projectId} />}
         {tab === 'apikeys'      && <ApiKeysTab        projectId={projectId} />}
         {tab === 'environments' && <EnvironmentsTab   projectId={projectId} />}
@@ -110,7 +112,7 @@ export function SettingsPage() {
 }
 
 // ── General tab ───────────────────────────────────────────────
-function GeneralTab({ projectId, isAdmin }: { projectId: string; isAdmin: boolean }) {
+function GeneralTab({ projectId, isAdmin, isSystemAdmin }: { projectId: string; isAdmin: boolean; isSystemAdmin: boolean }) {
   const qc = useQueryClient();
 
   const { data, isLoading } = useQuery({
@@ -162,26 +164,28 @@ function GeneralTab({ projectId, isAdmin }: { projectId: string; isAdmin: boolea
         placeholder="My Project"
       />
 
-      <div style={{ marginTop: 14, marginBottom: 20 }}>
-        <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--gray-700)', marginBottom: 6 }}>
-          Category <span style={{ color: 'var(--gray-400)', fontWeight: 400 }}>(optional)</span>
-        </label>
-        <select
-          value={category}
-          onChange={e => setCategory(e.target.value as ProjectCategory | '')}
-          style={{
-            width: '100%', padding: '8px 10px',
-            border: '1px solid var(--border-color)', borderRadius: 8,
-            fontSize: '0.875rem', background: 'var(--surface-base)', color: 'var(--gray-900)',
-          }}
-        >
-          <option value="">— No category —</option>
-          <option value="client-facing">Client-facing</option>
-          <option value="internal">Internal</option>
-          <option value="infrastructure">Infrastructure</option>
-          <option value="third-party">Third-party</option>
-        </select>
-      </div>
+      {isSystemAdmin && (
+        <div style={{ marginTop: 14, marginBottom: 20 }}>
+          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--gray-700)', marginBottom: 6 }}>
+            Category <span style={{ color: 'var(--gray-400)', fontWeight: 400 }}>(optional)</span>
+          </label>
+          <select
+            value={category}
+            onChange={e => setCategory(e.target.value as ProjectCategory | '')}
+            style={{
+              width: '100%', padding: '8px 10px',
+              border: '1px solid var(--border-color)', borderRadius: 8,
+              fontSize: '0.875rem', background: 'var(--surface-base)', color: 'var(--gray-900)',
+            }}
+          >
+            <option value="">— No category —</option>
+            <option value="client-facing">Client-facing</option>
+            <option value="internal">Internal</option>
+            <option value="infrastructure">Infrastructure</option>
+            <option value="third-party">Third-party</option>
+          </select>
+        </div>
+      )}
 
       <Button variant="primary" loading={update.isPending} onClick={() => update.mutate()}>
         Save changes
