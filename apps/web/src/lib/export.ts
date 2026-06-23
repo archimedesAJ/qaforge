@@ -1,13 +1,14 @@
 // ── CSV Export ────────────────────────────────────────────────
 
 interface RunResultRow {
-  id:          number;
-  status:      string;
-  durationMs?: number;
+  id:           number;
+  testCaseId?:  string;
+  status:       string;
+  durationMs?:  number;
   errorMessage?: string;
   failureNote?:  string;
-  executedAt:  string;
-  testCase?:   { title: string; type: string; priority: string } | null;
+  executedAt:   string;
+  testCase?:    { title: string; type: string; priority: string } | null;
 }
 
 interface RunMeta {
@@ -21,11 +22,12 @@ interface RunMeta {
 }
 
 export function exportResultsCsv(run: RunMeta, results: RunResultRow[]): void {
-  const headers = ['Test case', 'Type', 'Status', 'Duration (ms)', 'Error message', 'Failure note', 'Executed at'];
+  const headers = ['Case ID', 'Test case', 'Type', 'Status', 'Duration (ms)', 'Error message', 'Failure note', 'Executed at'];
 
   const rows = results.map(r => [
-    r.testCase?.title    ?? `Result #${r.id}`,
-    r.testCase?.type     ?? '',
+    r.testCaseId          ?? '',
+    r.testCase?.title     ?? `Result #${r.id}`,
+    r.testCase?.type      ?? '',
     r.status,
     r.durationMs != null  ? String(r.durationMs) : '',
     r.errorMessage        ?? '',
@@ -226,8 +228,9 @@ export async function exportResultsPdf(
   doc.text('Test results', MARGIN, y);
   y += 6;
 
-  // Column widths — no Priority
-  const colTitle  = COL_W - 78; // ~100 mm
+  // Column widths
+  const colId     = 22;
+  const colTitle  = COL_W - 22 - 78; // ~78 mm
   const colType   = 26;
   const colStatus = 26;
 
@@ -237,6 +240,7 @@ export async function exportResultsPdf(
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...gray500);
   let tx = MARGIN + 2;
+  doc.text('Case ID',  tx, y + 1); tx += colId;
   doc.text('Test case', tx, y + 1); tx += colTitle;
   doc.text('Type',      tx, y + 1); tx += colType;
   doc.text('Status',    tx, y + 1); tx += colStatus;
@@ -255,11 +259,14 @@ export async function exportResultsPdf(
 
     const statusColor = r.status === 'pass' ? green : r.status === 'fail' ? red : amber;
     const title       = r.testCase?.title ?? `Result #${r.id}`;
-    const truncTitle  = title.length > 52 ? title.slice(0, 50) + '…' : title;
+    const truncTitle  = title.length > 44 ? title.slice(0, 42) + '…' : title;
+    const shortId     = r.testCaseId ? r.testCaseId.slice(-8) : '—';
 
     doc.setFontSize(7.5);
-    doc.setTextColor(...gray900);
+    doc.setTextColor(...gray400);
     tx = MARGIN + 2;
+    doc.text(shortId,                       tx, y + 1); tx += colId;
+    doc.setTextColor(...gray900);
     doc.text(truncTitle,                    tx, y + 1); tx += colTitle;
     doc.text(r.testCase?.type ?? '',        tx, y + 1); tx += colType;
     doc.setTextColor(...statusColor);
@@ -724,9 +731,9 @@ export interface SprintSummaryData {
     label: string;
     url: string | null;
     storyStatus: string;
-    cases: Array<{ title: string; status: string; failureNote: string | null; errorMessage: string | null }>;
+    cases: Array<{ id?: string; title: string; status: string; failureNote: string | null; errorMessage: string | null }>;
   }>;
-  unlinked: Array<{ title: string; status: string; failureNote: string | null; errorMessage: string | null }>;
+  unlinked: Array<{ id?: string; title: string; status: string; failureNote: string | null; errorMessage: string | null }>;
   overall: { total: number; pass: number; fail: number; blocked: number; skipped: number; passRate: number | null };
 }
 
@@ -849,9 +856,12 @@ export async function exportSprintSummaryPdf(plan: SprintSummaryData): Promise<v
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(...statusColor(c.status));
         doc.text(c.status.padEnd(8), MARGIN + 6, y);
+        doc.setTextColor(...gray400);
+        const shortId = c.id ? `#${c.id.slice(-8)}` : '';
+        if (shortId) doc.text(shortId, MARGIN + 22, y);
         doc.setTextColor(...gray700);
-        const title = c.title.length > 65 ? c.title.slice(0, 63) + '…' : c.title;
-        doc.text(title, MARGIN + 22, y);
+        const title = c.title.length > 55 ? c.title.slice(0, 53) + '…' : c.title;
+        doc.text(title, MARGIN + (shortId ? 40 : 22), y);
         y += 5;
         const note = c.failureNote || c.errorMessage;
         if (note && c.status !== 'pass') {
@@ -883,9 +893,12 @@ export async function exportSprintSummaryPdf(plan: SprintSummaryData): Promise<v
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(...statusColor(c.status));
       doc.text(c.status.padEnd(8), MARGIN, y);
+      doc.setTextColor(...gray400);
+      const shortId = c.id ? `#${c.id.slice(-8)}` : '';
+      if (shortId) doc.text(shortId, MARGIN + 16, y);
       doc.setTextColor(...gray700);
-      const title = c.title.length > 70 ? c.title.slice(0, 68) + '…' : c.title;
-      doc.text(title, MARGIN + 16, y);
+      const title = c.title.length > 60 ? c.title.slice(0, 58) + '…' : c.title;
+      doc.text(title, MARGIN + (shortId ? 34 : 16), y);
       y += 5;
     }
     hrLine();
