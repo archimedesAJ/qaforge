@@ -150,7 +150,7 @@ export function ProjectsPage() {
               <ProjectCard
                 key={project.id}
                 project={project}
-                showCategory={isSystemAdmin}
+                showCategory={isSystemAdmin || project.userRole === 'admin'}
                 onClick={() => handleProjectClick(project)}
               />
             ))}

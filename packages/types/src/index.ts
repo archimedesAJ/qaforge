@@ -121,6 +121,7 @@ export interface Project {
   name: string;
   slug: string;
   category: ProjectCategory | null;
+  userRole: string;
   ownerId: string;
   createdAt: string;
 }

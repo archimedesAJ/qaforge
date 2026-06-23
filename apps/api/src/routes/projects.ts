@@ -34,14 +34,17 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
 
     if (isSystemAdmin) {
       const projects = await prisma.project.findMany({ orderBy: { createdAt: 'desc' } });
-      return { projects, isSystemAdmin: true };
+      return { projects: projects.map(p => ({ ...p, userRole: 'admin' })), isSystemAdmin: true };
     }
 
     const memberships = await prisma.projectMember.findMany({
       where: { userId },
       include: { project: true },
     });
-    return { projects: memberships.map((m: { project: unknown }) => m.project), isSystemAdmin: false };
+    return {
+      projects: memberships.map((m: { project: unknown; role: string }) => ({ ...(m.project as object), userRole: m.role })),
+      isSystemAdmin: false,
+    };
   });
 
   // POST /projects — create a new project (any authenticated user)
