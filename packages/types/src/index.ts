@@ -114,10 +114,13 @@ export interface SessionLogEntry {
 // Core entities
 // ─────────────────────────────────────────────────────────────
 
+export type ProjectCategory = 'client-facing' | 'internal' | 'infrastructure' | 'third-party';
+
 export interface Project {
   id: string;
   name: string;
   slug: string;
+  category: ProjectCategory | null;
   ownerId: string;
   createdAt: string;
 }

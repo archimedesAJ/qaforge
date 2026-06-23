@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '../components/shared/AppLayout';
 import { Button, Input, Modal, EmptyState, Alert, Spinner } from '../components/shared/ui';
 import { api } from '../lib/api';
-import type { Project } from '@qaforge/types';
+import type { Project, ProjectCategory } from '@qaforge/types';
 
 export function ProjectsPage() {
   const [showCreate, setShowCreate] = useState(false);
@@ -16,17 +16,19 @@ export function ProjectsPage() {
     queryFn: () => api.get<{ projects: Project[]; isSystemAdmin: boolean }>('projects'),
   });
 
-  const [search, setSearch] = useState('');
+  const [search, setSearch]               = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<ProjectCategory | ''>('');
 
   const projects      = data?.projects ?? [];
   const isSystemAdmin = data?.isSystemAdmin ?? false;
 
-  const filtered = search.trim()
-    ? projects.filter(p =>
-        p.name.toLowerCase().includes(search.toLowerCase()) ||
-        p.slug.toLowerCase().includes(search.toLowerCase())
-      )
-    : projects;
+  const filtered = projects.filter(p => {
+    const matchesSearch = !search.trim() ||
+      p.name.toLowerCase().includes(search.toLowerCase()) ||
+      p.slug.toLowerCase().includes(search.toLowerCase());
+    const matchesCategory = !categoryFilter || p.category === categoryFilter;
+    return matchesSearch && matchesCategory;
+  });
 
   function handleProjectClick(project: Project) {
     navigate(`/projects/${project.id}`);
@@ -80,14 +82,14 @@ export function ProjectsPage() {
         {isError && <Alert type="error">Failed to load projects. Is the API running?</Alert>}
 
         {!isLoading && !isError && projects.length > 0 && (
-          <div style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
             <input
               type="search"
               placeholder="Search projects…"
               value={search}
               onChange={e => setSearch(e.target.value)}
               style={{
-                width: '100%', maxWidth: 360,
+                flex: '1 1 240px', maxWidth: 360,
                 padding: '8px 12px',
                 border: '1px solid var(--border-color)',
                 borderRadius: 8,
@@ -97,6 +99,25 @@ export function ProjectsPage() {
                 color: 'var(--gray-900)',
               }}
             />
+            <select
+              value={categoryFilter}
+              onChange={e => setCategoryFilter(e.target.value as ProjectCategory | '')}
+              style={{
+                padding: '8px 12px',
+                border: '1px solid var(--border-color)',
+                borderRadius: 8,
+                fontSize: '0.875rem',
+                background: 'var(--surface-base)',
+                color: categoryFilter ? 'var(--gray-900)' : 'var(--gray-400)',
+                cursor: 'pointer',
+              }}
+            >
+              <option value="">All categories</option>
+              <option value="client-facing">Client-facing</option>
+              <option value="internal">Internal</option>
+              <option value="infrastructure">Infrastructure</option>
+              <option value="third-party">Third-party</option>
+            </select>
           </div>
         )}
 
@@ -175,6 +196,20 @@ function projectPalette(name: string) {
   return AVATAR_PALETTES[hash % AVATAR_PALETTES.length];
 }
 
+const CATEGORY_LABELS: Record<string, string> = {
+  'client-facing':  'Client-facing',
+  'internal':       'Internal',
+  'infrastructure': 'Infrastructure',
+  'third-party':    'Third-party',
+};
+
+const CATEGORY_BADGE: Record<string, { background: string; color: string; border: string }> = {
+  'client-facing':  { background: '#DBEAFE', color: '#1D4ED8', border: '1px solid #BFDBFE' },
+  'internal':       { background: '#F3F4F6', color: '#374151', border: '1px solid #E5E7EB' },
+  'infrastructure': { background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' },
+  'third-party':    { background: '#EDE9FE', color: '#5B21B6', border: '1px solid #DDD6FE' },
+};
+
 // ── Project card ──────────────────────────────────────────────
 function ProjectCard({ project, onClick }: { project: Project; onClick: () => void }) {
   return (
@@ -226,6 +261,19 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
         {project.slug}
       </div>
 
+      {project.category && (
+        <div style={{ marginTop: 10 }}>
+          <span style={{
+            ...CATEGORY_BADGE[project.category],
+            fontSize: '0.6875rem', fontWeight: 600,
+            padding: '2px 8px', borderRadius: 20,
+            letterSpacing: '0.03em',
+          }}>
+            {CATEGORY_LABELS[project.category]}
+          </span>
+        </div>
+      )}
+
       <div style={{
         marginTop: 16,
         paddingTop: 14,
@@ -247,12 +295,13 @@ function CreateProjectModal({
   onClose: () => void;
   onCreated: (project: Project) => void;
 }) {
-  const [name, setName] = useState('');
-  const [slug, setSlug] = useState('');
-  const [error, setError] = useState('');
+  const [name, setName]         = useState('');
+  const [slug, setSlug]         = useState('');
+  const [category, setCategory] = useState<ProjectCategory | ''>('');
+  const [error, setError]       = useState('');
 
   const mutation = useMutation({
-    mutationFn: (data: { name: string; slug: string }) =>
+    mutationFn: (data: { name: string; slug: string; category?: ProjectCategory }) =>
       api.post<Project>('projects', data),
     onSuccess: onCreated,
     onError: (err: Error) => setError(err.message),
@@ -277,11 +326,11 @@ function CreateProjectModal({
     if (!slug.trim()) { setError('Slug is required'); return; }
     if (slug.trim().length > 50) { setError('Slug must be 50 characters or fewer'); return; }
     if (!/^[a-z0-9-]+$/.test(slug.trim())) { setError('Slug must be lowercase letters, numbers, and hyphens only'); return; }
-    mutation.mutate({ name: name.trim(), slug: slug.trim() });
+    mutation.mutate({ name: name.trim(), slug: slug.trim(), ...(category ? { category } : {}) });
   }
 
   function handleClose() {
-    setName(''); setSlug(''); setError('');
+    setName(''); setSlug(''); setCategory(''); setError('');
     onClose();
   }
 
@@ -321,6 +370,26 @@ function CreateProjectModal({
           hint="Used in URLs — lowercase letters, numbers, and hyphens only"
           required
         />
+        <div style={{ marginTop: 14 }}>
+          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--gray-700)', marginBottom: 6 }}>
+            Category <span style={{ color: 'var(--gray-400)', fontWeight: 400 }}>(optional)</span>
+          </label>
+          <select
+            value={category}
+            onChange={e => setCategory(e.target.value as ProjectCategory | '')}
+            style={{
+              width: '100%', padding: '8px 10px',
+              border: '1px solid var(--border-color)', borderRadius: 8,
+              fontSize: '0.875rem', background: 'var(--surface-base)', color: 'var(--gray-900)',
+            }}
+          >
+            <option value="">— Select category —</option>
+            <option value="client-facing">Client-facing</option>
+            <option value="internal">Internal</option>
+            <option value="infrastructure">Infrastructure</option>
+            <option value="third-party">Third-party</option>
+          </select>
+        </div>
       </form>
     </Modal>
   );

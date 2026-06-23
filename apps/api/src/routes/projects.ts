@@ -6,9 +6,12 @@ import { authenticate, requireRole } from '../middleware/auth.js';
 import { sendInviteEmail, sendProjectAddedEmail } from '../services/email.js';
 import { processDigest } from '../jobs/weeklyDigest.js';
 
+const CATEGORIES = ['client-facing', 'internal', 'infrastructure', 'third-party'] as const;
+
 const CreateProjectSchema = z.object({
-  name: z.string().min(1).max(100),
-  slug: z.string().min(1).max(50).regex(/^[a-z0-9-]+$/, 'Slug must be lowercase letters, numbers, and hyphens only'),
+  name:     z.string().min(1).max(100),
+  slug:     z.string().min(1).max(50).regex(/^[a-z0-9-]+$/, 'Slug must be lowercase letters, numbers, and hyphens only'),
+  category: z.enum(CATEGORIES).optional(),
 });
 
 const InviteSchema = z.object({
@@ -50,7 +53,9 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
 
     const project = await prisma.project.create({
       data: {
-        ...body,
+        name: body.name,
+        slug: body.slug,
+        category: body.category ?? null,
         ownerId: userId,
         members: { create: { userId, role: 'admin' } },
       },
