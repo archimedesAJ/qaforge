@@ -230,9 +230,9 @@ export async function exportResultsPdf(
 
   // Column widths
   const colId     = 22;
-  const colTitle  = COL_W - 22 - 78; // ~78 mm
   const colType   = 26;
-  const colStatus = 26;
+  const colStatus = 28;
+  const colTitle  = COL_W - colId - colType - colStatus;
 
   doc.setFillColor(...gray100);
   doc.rect(MARGIN, y - 3, COL_W, 7, 'F');
@@ -240,11 +240,10 @@ export async function exportResultsPdf(
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...gray500);
   let tx = MARGIN + 2;
-  doc.text('Case ID',  tx, y + 1); tx += colId;
+  doc.text('Case ID',   tx, y + 1); tx += colId;
   doc.text('Test case', tx, y + 1); tx += colTitle;
   doc.text('Type',      tx, y + 1); tx += colType;
-  doc.text('Status',    tx, y + 1); tx += colStatus;
-  doc.text('Duration',  tx, y + 1);
+  doc.text('Status',    tx, y + 1);
   y += 8;
 
   doc.setFont('helvetica', 'normal');
@@ -264,14 +263,12 @@ export async function exportResultsPdf(
     doc.setFontSize(7.5);
     doc.setTextColor(...gray400);
     tx = MARGIN + 2;
-    doc.text(shortId,                          tx, y + 1); tx += colId;
+    doc.text(shortId,                           tx, y + 1); tx += colId;
     doc.setTextColor(...gray900);
-    doc.text(fitText(doc, title, colTitle - 2), tx, y + 1); tx += colTitle;
-    doc.text(r.testCase?.type ?? '',        tx, y + 1); tx += colType;
+    doc.text(fitText(doc, title, colTitle - 2),  tx, y + 1); tx += colTitle;
+    doc.text(r.testCase?.type ?? '',             tx, y + 1); tx += colType;
     doc.setTextColor(...statusColor);
-    doc.text(r.status.charAt(0).toUpperCase() + r.status.slice(1), tx, y + 1); tx += colStatus;
-    doc.setTextColor(...gray500);
-    doc.text(r.durationMs != null ? fmtDuration(r.durationMs) : '—', tx, y + 1);
+    doc.text(r.status.charAt(0).toUpperCase() + r.status.slice(1), tx, y + 1);
 
     y += 7;
 
@@ -971,9 +968,6 @@ function slugify(str: string): string {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
-function fmtDuration(ms: number): string {
-  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
-}
 
 function fmtSeqId(seqId: number): string {
   return `TC-${String(seqId).padStart(4, '0')}`;
