@@ -275,14 +275,15 @@ export async function exportResultsPdf(
 
     y += 7;
 
-    // Error sub-row
-    const note = r.errorMessage || r.failureNote;
+    // Note sub-row (failure reason / blocker note)
+    const note = r.failureNote || r.errorMessage;
     if (note && r.status !== 'pass') {
       checkPage(6);
+      const noteX   = MARGIN + colId + 2;
+      const noteMax = COL_W - colId - 4;
       doc.setFontSize(6.5);
       doc.setTextColor(...(r.status === 'fail' ? red : amber));
-      const truncNote = note.length > 110 ? note.slice(0, 108) + '…' : note;
-      doc.text('↳ ' + truncNote, MARGIN + 4, y + 1);
+      doc.text('↳ ' + fitText(doc, note, noteMax), noteX, y + 1);
       y += 6;
     }
   });
@@ -868,8 +869,7 @@ export async function exportSprintSummaryPdf(plan: SprintSummaryData): Promise<v
           checkPage(5);
           doc.setFontSize(6.5);
           doc.setTextColor(...gray400);
-          const truncNote = note.length > 100 ? note.slice(0, 98) + '…' : note;
-          doc.text('↳ ' + truncNote, MARGIN + 22, y);
+          doc.text('↳ ' + fitText(doc, note, PAGE_W - MARGIN * 2 - 24), MARGIN + 22, y);
           y += 4;
         }
       }
@@ -925,16 +925,14 @@ export async function exportSprintSummaryPdf(plan: SprintSummaryData): Promise<v
       doc.text(c.status, MARGIN, y);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(...gray700);
-      const title = c.title.length > 55 ? c.title.slice(0, 53) + '…' : c.title;
-      doc.text(title, MARGIN + 14, y);
+      doc.text(fitText(doc, c.title, PAGE_W - MARGIN * 2 - 16), MARGIN + 14, y);
       y += 5;
       const note = c.failureNote;
       if (note) {
         checkPage(5);
         doc.setFontSize(7);
         doc.setTextColor(...gray500);
-        const truncNote = note.length > 100 ? note.slice(0, 98) + '…' : note;
-        doc.text('↳ ' + truncNote, MARGIN + 14, y);
+        doc.text('↳ ' + fitText(doc, note, PAGE_W - MARGIN * 2 - 16), MARGIN + 14, y);
         y += 4;
       } else {
         checkPage(5);
