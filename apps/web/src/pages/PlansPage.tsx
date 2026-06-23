@@ -53,6 +53,7 @@ interface UnassignedRun {
 
 interface SummaryCaseEntry {
   id: string;
+  seqId?: number;
   title: string;
   status: string;
   failureNote: string | null;

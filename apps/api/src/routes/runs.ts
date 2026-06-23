@@ -59,7 +59,7 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
     const { runId } = req.params as { projectId: string; runId: string };
     const runCases = await prisma.runCase.findMany({
       where: { runId },
-      include: { testCase: { select: { id: true, title: true, type: true, priority: true, suiteId: true, steps: true, tags: true, preconditions: true } } },
+      include: { testCase: { select: { id: true, seqId: true, title: true, type: true, priority: true, suiteId: true, steps: true, tags: true, preconditions: true } } },
       orderBy: { id: 'asc' },
     });
     return { runCases };
@@ -197,7 +197,7 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
       where: { runId },
       orderBy: { executedAt: 'asc' },
       include: {
-        testCase: { select: { title: true, type: true } },
+        testCase: { select: { seqId: true, title: true, type: true } },
         defect: true,
       },
     });

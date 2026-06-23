@@ -152,7 +152,7 @@ export const plansRoutes: FastifyPluginAsync = async (app) => {
         failureNote: true,
         errorMessage: true,
         executedAt: true,
-        testCase: { select: { title: true, type: true, lineageId: true } },
+        testCase: { select: { seqId: true, title: true, type: true, lineageId: true } },
       },
     });
 
@@ -183,19 +183,20 @@ export const plansRoutes: FastifyPluginAsync = async (app) => {
       linksByLineage[link.lineageId].push(link);
     }
 
-    type CaseEntry = { id: string; title: string; status: string; failureNote: string | null; errorMessage: string | null };
+    type CaseEntry = { id: string; seqId: number | null; title: string; status: string; failureNote: string | null; errorMessage: string | null };
     type StoryGroup = { key: string; label: string; url: string | null; type: string; cases: CaseEntry[]; storyStatus: string };
 
     const storyMap = new Map<string, StoryGroup>();
     const unlinked: CaseEntry[] = [];
 
     for (const r of latestResults) {
-      const tc = r.testCase as { title: string; type: string; lineageId?: string | null } | null;
+      const tc = r.testCase as { seqId: number; title: string; type: string; lineageId?: string | null } | null;
       const lineageId = tc?.lineageId ?? r.testCaseId;
       const links = linksByLineage[lineageId] ?? [];
       const storyLink = links.find(l => l.type === 'jira' || l.type === 'requirement') ?? links[0];
       const entry: CaseEntry = {
         id: r.testCaseId,
+        seqId: tc?.seqId ?? null,
         title: tc?.title ?? `Test #${r.testCaseId.slice(-6)}`,
         status: r.status,
         failureNote: r.failureNote,

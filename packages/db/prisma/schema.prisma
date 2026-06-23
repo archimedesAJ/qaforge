@@ -108,6 +108,7 @@ model TestSuite {
 
 model TestCase {
   id            String    @id @default(uuid())
+  seqId         Int       @unique @default(autoincrement())
   lineageId     String?
   projectId     String
   suiteId       String?

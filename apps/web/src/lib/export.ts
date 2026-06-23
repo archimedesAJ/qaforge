@@ -8,7 +8,7 @@ interface RunResultRow {
   errorMessage?: string;
   failureNote?:  string;
   executedAt:   string;
-  testCase?:    { title: string; type: string; priority: string } | null;
+  testCase?:    { seqId?: number; title: string; type: string; priority: string } | null;
 }
 
 interface RunMeta {
@@ -25,7 +25,7 @@ export function exportResultsCsv(run: RunMeta, results: RunResultRow[]): void {
   const headers = ['Case ID', 'Test case', 'Type', 'Status', 'Duration (ms)', 'Error message', 'Failure note', 'Executed at'];
 
   const rows = results.map(r => [
-    r.testCaseId          ?? '',
+    r.testCase?.seqId != null ? fmtSeqId(r.testCase.seqId) : (r.testCaseId ?? ''),
     r.testCase?.title     ?? `Result #${r.id}`,
     r.testCase?.type      ?? '',
     r.status,
@@ -260,7 +260,7 @@ export async function exportResultsPdf(
     const statusColor = r.status === 'pass' ? green : r.status === 'fail' ? red : amber;
     const title       = r.testCase?.title ?? `Result #${r.id}`;
     const truncTitle  = title.length > 44 ? title.slice(0, 42) + '…' : title;
-    const shortId     = r.testCaseId ? r.testCaseId.slice(-8) : '—';
+    const shortId     = r.testCase?.seqId != null ? fmtSeqId(r.testCase.seqId) : '—';
 
     doc.setFontSize(7.5);
     doc.setTextColor(...gray400);
@@ -731,9 +731,9 @@ export interface SprintSummaryData {
     label: string;
     url: string | null;
     storyStatus: string;
-    cases: Array<{ id?: string; title: string; status: string; failureNote: string | null; errorMessage: string | null }>;
+    cases: Array<{ id?: string; seqId?: number; title: string; status: string; failureNote: string | null; errorMessage: string | null }>;
   }>;
-  unlinked: Array<{ id?: string; title: string; status: string; failureNote: string | null; errorMessage: string | null }>;
+  unlinked: Array<{ id?: string; seqId?: number; title: string; status: string; failureNote: string | null; errorMessage: string | null }>;
   overall: { total: number; pass: number; fail: number; blocked: number; skipped: number; passRate: number | null };
 }
 
@@ -857,7 +857,7 @@ export async function exportSprintSummaryPdf(plan: SprintSummaryData): Promise<v
         doc.setTextColor(...statusColor(c.status));
         doc.text(c.status.padEnd(8), MARGIN + 6, y);
         doc.setTextColor(...gray400);
-        const shortId = c.id ? `#${c.id.slice(-8)}` : '';
+        const shortId = c.seqId != null ? fmtSeqId(c.seqId) : '';
         if (shortId) doc.text(shortId, MARGIN + 22, y);
         doc.setTextColor(...gray700);
         const title = c.title.length > 55 ? c.title.slice(0, 53) + '…' : c.title;
@@ -894,7 +894,7 @@ export async function exportSprintSummaryPdf(plan: SprintSummaryData): Promise<v
       doc.setTextColor(...statusColor(c.status));
       doc.text(c.status.padEnd(8), MARGIN, y);
       doc.setTextColor(...gray400);
-      const shortId = c.id ? `#${c.id.slice(-8)}` : '';
+      const shortId = c.seqId != null ? fmtSeqId(c.seqId) : '';
       if (shortId) doc.text(shortId, MARGIN + 16, y);
       doc.setTextColor(...gray700);
       const title = c.title.length > 60 ? c.title.slice(0, 58) + '…' : c.title;
@@ -965,4 +965,8 @@ function slugify(str: string): string {
 
 function fmtDuration(ms: number): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
+}
+
+function fmtSeqId(seqId: number): string {
+  return `TC-${String(seqId).padStart(4, '0')}`;
 }
