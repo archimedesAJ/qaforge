@@ -554,7 +554,7 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
                           );
                         })()}
                         {/* Title / external ref */}
-                        {result.defect.externalRef ? (
+                        {result.defect.externalRef && result.defect.externalRef.startsWith('http') ? (
                           <a href={result.defect.externalRef} target="_blank" rel="noopener noreferrer"
                             style={{ fontSize: '0.8125rem', color: 'var(--color-primary)', fontWeight: 500, textDecoration: 'none' }}
                             onClick={e => e.stopPropagation()}
@@ -564,6 +564,11 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
                         ) : (
                           <span style={{ fontSize: '0.8125rem', color: 'var(--gray-700)', fontWeight: 500 }}>
                             {result.defect.title}
+                            {result.defect.externalRef && (
+                              <span style={{ marginLeft: 6, fontSize: '0.75rem', fontWeight: 400, color: 'var(--gray-400)' }}>
+                                {result.defect.externalRef}
+                              </span>
+                            )}
                           </span>
                         )}
                         {/* Status chip */}

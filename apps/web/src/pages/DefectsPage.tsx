@@ -175,7 +175,7 @@ export function DefectsPage() {
 
                   {/* Title / link */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    {defect.externalRef ? (
+                    {defect.externalRef && defect.externalRef.startsWith('http') ? (
                       <a
                         href={defect.externalRef} target="_blank" rel="noopener noreferrer"
                         style={{ fontWeight: 600, fontSize: '0.9375rem', color: 'var(--color-primary)', textDecoration: 'none' }}
@@ -185,6 +185,11 @@ export function DefectsPage() {
                     ) : (
                       <span style={{ fontWeight: 600, fontSize: '0.9375rem', color: 'var(--gray-900)' }}>
                         {defect.title}
+                        {defect.externalRef && (
+                          <span style={{ marginLeft: 8, fontSize: '0.8125rem', fontWeight: 400, color: 'var(--gray-400)' }}>
+                            {defect.externalRef}
+                          </span>
+                        )}
                       </span>
                     )}
                   </div>
