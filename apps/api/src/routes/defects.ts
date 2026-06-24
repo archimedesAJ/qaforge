@@ -15,7 +15,7 @@ const AttachmentSchema = z.object({
 const CreateDefectSchema = z.object({
   title:       z.string().min(1),
   tracker:     z.enum(VALID_TRACKERS),
-  externalRef: z.string().url().or(z.literal('')).nullish(),
+  externalRef: z.string().max(2048).nullish(),
   notes:       z.string().optional(),
   attachments: z.array(AttachmentSchema).optional(),
 });
@@ -23,7 +23,7 @@ const CreateDefectSchema = z.object({
 const UpdateDefectSchema = z.object({
   title:       z.string().min(1).optional(),
   tracker:     z.enum(VALID_TRACKERS).optional(),
-  externalRef: z.string().url().or(z.literal('')).nullish(),
+  externalRef: z.string().max(2048).nullish(),
   status:      z.enum(VALID_STATUSES).optional(),
   notes:       z.string().optional(),
   attachments: z.array(AttachmentSchema).optional(),
