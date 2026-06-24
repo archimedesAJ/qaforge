@@ -57,6 +57,7 @@ export function DefectsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [editingDefect, setEditingDefect] = useState<Defect | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['defects', projectId, statusFilter],
@@ -221,13 +222,22 @@ export function DefectsPage() {
                   )}
 
                   {isEditor && (
-                    <button
-                      onClick={() => removeDefect.mutate(defect.id)}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--gray-300)', fontSize: '0.875rem', padding: '2px 4px' }}
-                      title="Remove defect"
-                    >
-                      ✕
-                    </button>
+                    <>
+                      <button
+                        onClick={() => setEditingDefect(defect)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--gray-400)', fontSize: '0.875rem', padding: '2px 4px' }}
+                        title="Edit defect"
+                      >
+                        ✎
+                      </button>
+                      <button
+                        onClick={() => removeDefect.mutate(defect.id)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--gray-300)', fontSize: '0.875rem', padding: '2px 4px' }}
+                        title="Remove defect"
+                      >
+                        ✕
+                      </button>
+                    </>
                   )}
                 </div>
 
@@ -283,7 +293,7 @@ export function DefectsPage() {
                     <span style={{ fontStyle: 'italic' }}>No linked test</span>
                   )}
                   <span>
-                    {new Date(defect.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    {new Date(defect.createdAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </span>
                 </div>
               </div>
@@ -303,7 +313,120 @@ export function DefectsPage() {
           }}
         />
       )}
+
+      {/* Edit defect modal */}
+      {editingDefect && projectId && (
+        <EditDefectModal
+          projectId={projectId}
+          defect={editingDefect}
+          onClose={() => setEditingDefect(null)}
+          onSaved={() => {
+            qc.invalidateQueries({ queryKey: ['defects', projectId] });
+            setEditingDefect(null);
+          }}
+        />
+      )}
     </AppLayout>
+  );
+}
+
+// ── Edit defect modal ─────────────────────────────────────────────────────────
+
+function EditDefectModal({
+  projectId, defect, onClose, onSaved,
+}: {
+  projectId: string;
+  defect: Defect;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [title, setTitle]             = useState(defect.title ?? '');
+  const [tracker, setTracker]         = useState(defect.tracker);
+  const [ref, setRef]                 = useState(defect.externalRef ?? '');
+  const [notes, setNotes]             = useState(defect.notes ?? '');
+  const [attachments, setAttachments] = useState<AttachmentItem[]>(defect.attachments ?? []);
+  const [error, setError]             = useState('');
+
+  const mutation = useMutation({
+    mutationFn: () => api.patch(`projects/${projectId}/defects/${defect.id}`, {
+      title: title.trim(),
+      tracker,
+      externalRef: ref.trim() || null,
+      notes: notes.trim() || null,
+      attachments,
+    }),
+    onSuccess: onSaved,
+    onError: (err: Error) => setError(err.message),
+  });
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError('');
+    if (!title.trim()) { setError('Title is required'); return; }
+    mutation.mutate();
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Edit defect"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" loading={mutation.isPending} onClick={handleSubmit as () => void}>
+            Save changes
+          </Button>
+        </>
+      }
+    >
+      {error && <div style={{ marginBottom: 16 }}><Alert type="error">{error}</Alert></div>}
+      <form onSubmit={handleSubmit}>
+        <Input
+          label="Title"
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          placeholder="Login fails on Safari 17"
+          autoFocus
+          required
+        />
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: 6, color: 'var(--gray-700)' }}>
+            Tracker
+          </label>
+          <Select
+            value={tracker}
+            onChange={e => setTracker(e.target.value)}
+            options={TRACKER_OPTIONS}
+          />
+        </div>
+        <Input
+          label="External ref / URL (optional)"
+          value={ref}
+          onChange={e => setRef(e.target.value)}
+          placeholder="https://jira.company.com/browse/BUG-123 or BUG-123"
+        />
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: 6, color: 'var(--gray-700)' }}>
+            Notes (optional)
+          </label>
+          <textarea
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            placeholder="Steps to reproduce, affected environments, etc."
+            rows={3}
+            style={{
+              width: '100%', padding: '8px 12px',
+              border: '1px solid var(--border-color)', borderRadius: 8,
+              fontSize: '0.875rem', resize: 'vertical', outline: 'none',
+              background: 'var(--surface-base)', color: 'var(--gray-900)',
+              boxSizing: 'border-box',
+            }}
+          />
+        </div>
+        <AttachmentUploader value={attachments} onChange={setAttachments} />
+      </form>
+    </Modal>
   );
 }
 
