@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { api } from '../../lib/api';
 
 export interface AttachmentItem {
@@ -36,14 +36,14 @@ export function AttachmentUploader({ value, onChange }: Props) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
 
-  async function handleFiles(files: FileList | null) {
-    if (!files || files.length === 0) return;
+  async function handleFiles(files: File[]) {
+    if (files.length === 0) return;
     setUploading(true);
     setError('');
 
     const added: AttachmentItem[] = [];
     try {
-      for (const file of Array.from(files)) {
+      for (const file of files) {
         const form = new FormData();
         form.append('file', file);
         const res = await api.upload<{ url: string }>('uploads', form);
@@ -57,6 +57,32 @@ export function AttachmentUploader({ value, onChange }: Props) {
       if (inputRef.current) inputRef.current.value = '';
     }
   }
+
+  useEffect(() => {
+    function onPaste(e: ClipboardEvent) {
+      const active = document.activeElement;
+      if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return;
+
+      const items = Array.from(e.clipboardData?.items ?? []);
+      const imageFiles = items
+        .filter(item => item.type.startsWith('image/'))
+        .map(item => {
+          const f = item.getAsFile();
+          if (!f) return null;
+          const ext = f.type.split('/')[1] ?? 'png';
+          return new File([f], `screenshot-${Date.now()}.${ext}`, { type: f.type });
+        })
+        .filter((f): f is File => f !== null);
+
+      if (imageFiles.length === 0) return;
+      e.preventDefault();
+      handleFiles(imageFiles);
+    }
+
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, onChange]);
 
   function remove(idx: number) {
     onChange(value.filter((_, i) => i !== idx));
@@ -90,7 +116,7 @@ export function AttachmentUploader({ value, onChange }: Props) {
         multiple
         accept="image/*,video/*,.log,.txt,.json,.xml,.pdf"
         style={{ display: 'none' }}
-        onChange={e => handleFiles(e.target.files)}
+        onChange={e => handleFiles(Array.from(e.target.files ?? []))}
       />
 
       {error && (
@@ -146,7 +172,7 @@ export function AttachmentUploader({ value, onChange }: Props) {
           onDrop={e => {
             e.preventDefault();
             (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)';
-            handleFiles(e.dataTransfer.files);
+            handleFiles(Array.from(e.dataTransfer.files));
           }}
           style={{
             padding: '14px', textAlign: 'center',
@@ -157,7 +183,7 @@ export function AttachmentUploader({ value, onChange }: Props) {
           onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--color-primary)'}
           onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'}
         >
-          Drag &amp; drop or click to attach screenshots, videos, or logs
+          Drag &amp; drop, click, or paste (Ctrl+V) to attach screenshots, videos, or logs
         </div>
       )}
     </div>
