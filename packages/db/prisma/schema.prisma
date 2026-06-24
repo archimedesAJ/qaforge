@@ -36,6 +36,7 @@ model Project {
   name      String
   slug      String   @unique
   category  String?
+  stage     String?
   ownerId   String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

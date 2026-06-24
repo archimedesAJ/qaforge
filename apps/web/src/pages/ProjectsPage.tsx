@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '../components/shared/AppLayout';
 import { Button, Input, Modal, EmptyState, Alert, Spinner } from '../components/shared/ui';
 import { api } from '../lib/api';
-import type { Project, ProjectCategory } from '@qaforge/types';
+import type { Project, ProjectCategory, ProjectStage } from '@qaforge/types';
 
 export function ProjectsPage() {
   const [showCreate, setShowCreate] = useState(false);
@@ -18,6 +18,7 @@ export function ProjectsPage() {
 
   const [search, setSearch]               = useState('');
   const [categoryFilter, setCategoryFilter] = useState<ProjectCategory | ''>('');
+  const [stageFilter, setStageFilter]       = useState<ProjectStage | ''>('');
 
   const projects      = data?.projects ?? [];
   const isSystemAdmin = data?.isSystemAdmin ?? false;
@@ -27,7 +28,8 @@ export function ProjectsPage() {
       p.name.toLowerCase().includes(search.toLowerCase()) ||
       p.slug.toLowerCase().includes(search.toLowerCase());
     const matchesCategory = !categoryFilter || p.category === categoryFilter;
-    return matchesSearch && matchesCategory;
+    const matchesStage    = !stageFilter    || p.stage    === stageFilter;
+    return matchesSearch && matchesCategory && matchesStage;
   });
 
   function handleProjectClick(project: Project) {
@@ -120,6 +122,26 @@ export function ProjectsPage() {
                 <option value="third-party">Third-party</option>
               </select>
             )}
+            {isSystemAdmin && (
+              <select
+                value={stageFilter}
+                onChange={e => setStageFilter(e.target.value as ProjectStage | '')}
+                style={{
+                  padding: '8px 12px',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 8,
+                  fontSize: '0.875rem',
+                  background: 'var(--surface-base)',
+                  color: stageFilter ? 'var(--gray-900)' : 'var(--gray-400)',
+                  cursor: 'pointer',
+                }}
+              >
+                <option value="">All stages</option>
+                <option value="live">Live</option>
+                <option value="in_development">In development</option>
+                <option value="new">New</option>
+              </select>
+            )}
           </div>
         )}
 
@@ -151,6 +173,7 @@ export function ProjectsPage() {
                 key={project.id}
                 project={project}
                 showCategory={isSystemAdmin}
+                showStage={isSystemAdmin}
                 onClick={() => handleProjectClick(project)}
               />
             ))}
@@ -213,8 +236,20 @@ const CATEGORY_BADGE: Record<string, { background: string; color: string; border
   'third-party':    { background: '#EDE9FE', color: '#5B21B6', border: '1px solid #DDD6FE' },
 };
 
+const STAGE_LABELS: Record<string, string> = {
+  'live':           'Live',
+  'in_development': 'In development',
+  'new':            'New',
+};
+
+const STAGE_BADGE: Record<string, { background: string; color: string; border: string }> = {
+  'live':           { background: '#D1FAE5', color: '#065F46', border: '1px solid #6EE7B7' },
+  'in_development': { background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' },
+  'new':            { background: '#EDE9FE', color: '#5B21B6', border: '1px solid #DDD6FE' },
+};
+
 // ── Project card ──────────────────────────────────────────────
-function ProjectCard({ project, showCategory, onClick }: { project: Project; showCategory: boolean; onClick: () => void }) {
+function ProjectCard({ project, showCategory, showStage, onClick }: { project: Project; showCategory: boolean; showStage: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
@@ -264,18 +299,30 @@ function ProjectCard({ project, showCategory, onClick }: { project: Project; sho
         {project.slug}
       </div>
 
-      {showCategory && project.category && (
-        <div style={{ marginTop: 10 }}>
-          <span style={{
-            ...CATEGORY_BADGE[project.category],
-            fontSize: '0.6875rem', fontWeight: 600,
-            padding: '2px 8px', borderRadius: 20,
-            letterSpacing: '0.03em',
-          }}>
-            {CATEGORY_LABELS[project.category]}
-          </span>
+      {(showCategory && project.category) || (showStage && project.stage) ? (
+        <div style={{ marginTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {showCategory && project.category && (
+            <span style={{
+              ...CATEGORY_BADGE[project.category],
+              fontSize: '0.6875rem', fontWeight: 600,
+              padding: '2px 8px', borderRadius: 20,
+              letterSpacing: '0.03em',
+            }}>
+              {CATEGORY_LABELS[project.category]}
+            </span>
+          )}
+          {showStage && project.stage && (
+            <span style={{
+              ...STAGE_BADGE[project.stage],
+              fontSize: '0.6875rem', fontWeight: 600,
+              padding: '2px 8px', borderRadius: 20,
+              letterSpacing: '0.03em',
+            }}>
+              {STAGE_LABELS[project.stage]}
+            </span>
+          )}
         </div>
-      )}
+      ) : null}
 
       <div style={{
         marginTop: 16,

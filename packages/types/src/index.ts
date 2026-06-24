@@ -115,12 +115,14 @@ export interface SessionLogEntry {
 // ─────────────────────────────────────────────────────────────
 
 export type ProjectCategory = 'client-facing' | 'internal' | 'infrastructure' | 'third-party';
+export type ProjectStage    = 'live' | 'in_development' | 'new';
 
 export interface Project {
   id: string;
   name: string;
   slug: string;
   category: ProjectCategory | null;
+  stage: ProjectStage | null;
   userRole: string;
   ownerId: string;
   createdAt: string;

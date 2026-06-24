@@ -9,6 +9,7 @@ import { useAuthStore } from '../store/auth';
 
 type Tab = 'general' | 'team' | 'apikeys' | 'environments' | 'notifications' | 'integrations' | 'danger';
 type ProjectCategory = 'client-facing' | 'internal' | 'infrastructure' | 'third-party';
+type ProjectStage    = 'live' | 'in_development' | 'new';
 
 interface Member {
   userId: string;
@@ -117,11 +118,12 @@ function GeneralTab({ projectId, isAdmin, isSystemAdmin }: { projectId: string; 
 
   const { data, isLoading } = useQuery({
     queryKey: ['project', projectId],
-    queryFn: () => api.get<{ name: string; category: ProjectCategory | null }>(`projects/${projectId}`),
+    queryFn: () => api.get<{ name: string; category: ProjectCategory | null; stage: ProjectStage | null }>(`projects/${projectId}`),
   });
 
   const [name, setName]         = useState('');
   const [category, setCategory] = useState<ProjectCategory | ''>('');
+  const [stage, setStage]       = useState<ProjectStage | ''>('');
   const [success, setSuccess]   = useState('');
   const [error, setError]       = useState('');
 
@@ -129,6 +131,7 @@ function GeneralTab({ projectId, isAdmin, isSystemAdmin }: { projectId: string; 
     if (data) {
       setName(data.name);
       setCategory(data.category ?? '');
+      setStage(data.stage ?? '');
     }
   }, [data]);
 
@@ -136,6 +139,7 @@ function GeneralTab({ projectId, isAdmin, isSystemAdmin }: { projectId: string; 
     mutationFn: () => api.patch(`projects/${projectId}`, {
       name: name.trim(),
       category: category || null,
+      stage: stage || null,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['project', projectId] });
@@ -165,7 +169,7 @@ function GeneralTab({ projectId, isAdmin, isSystemAdmin }: { projectId: string; 
       />
 
       {isSystemAdmin && (
-        <div style={{ marginTop: 14, marginBottom: 20 }}>
+        <div style={{ marginTop: 14, marginBottom: 14 }}>
           <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--gray-700)', marginBottom: 6 }}>
             Category <span style={{ color: 'var(--gray-400)', fontWeight: 400 }}>(optional)</span>
           </label>
@@ -183,6 +187,28 @@ function GeneralTab({ projectId, isAdmin, isSystemAdmin }: { projectId: string; 
             <option value="internal">Internal</option>
             <option value="infrastructure">Infrastructure</option>
             <option value="third-party">Third-party</option>
+          </select>
+        </div>
+      )}
+
+      {isSystemAdmin && (
+        <div style={{ marginTop: 0, marginBottom: 20 }}>
+          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--gray-700)', marginBottom: 6 }}>
+            Lifecycle stage <span style={{ color: 'var(--gray-400)', fontWeight: 400 }}>(optional)</span>
+          </label>
+          <select
+            value={stage}
+            onChange={e => setStage(e.target.value as ProjectStage | '')}
+            style={{
+              width: '100%', padding: '8px 10px',
+              border: '1px solid var(--border-color)', borderRadius: 8,
+              fontSize: '0.875rem', background: 'var(--surface-base)', color: 'var(--gray-900)',
+            }}
+          >
+            <option value="">— No stage —</option>
+            <option value="new">New</option>
+            <option value="in_development">In development</option>
+            <option value="live">Live</option>
           </select>
         </div>
       )}

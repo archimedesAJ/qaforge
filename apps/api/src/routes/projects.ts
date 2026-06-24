@@ -7,16 +7,19 @@ import { sendInviteEmail, sendProjectAddedEmail } from '../services/email.js';
 import { processDigest } from '../jobs/weeklyDigest.js';
 
 const CATEGORIES = ['client-facing', 'internal', 'infrastructure', 'third-party'] as const;
+const STAGES     = ['live', 'in_development', 'new'] as const;
 
 const CreateProjectSchema = z.object({
   name:     z.string().min(1).max(100),
   slug:     z.string().min(1).max(50).regex(/^[a-z0-9-]+$/, 'Slug must be lowercase letters, numbers, and hyphens only'),
   category: z.enum(CATEGORIES).optional(),
+  stage:    z.enum(STAGES).optional(),
 });
 
 const UpdateProjectSchema = z.object({
   name:     z.string().min(1).max(100).optional(),
   category: z.enum(CATEGORIES).nullable().optional(),
+  stage:    z.enum(STAGES).nullable().optional(),
 });
 
 const InviteSchema = z.object({
@@ -64,6 +67,7 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         name: body.name,
         slug: body.slug,
         category: body.category ?? null,
+        stage: body.stage ?? null,
         ownerId: userId,
         members: { create: { userId, role: 'admin' } },
       },
@@ -107,6 +111,7 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
       data: {
         ...(body.name     !== undefined && { name: body.name.trim() }),
         ...(body.category !== undefined && { category: body.category }),
+        ...(body.stage    !== undefined && { stage: body.stage }),
       },
     });
 
