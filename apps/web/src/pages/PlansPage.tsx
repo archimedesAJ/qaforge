@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '../components/shared/AppLayout';
-import { Button, Modal, Input, Alert, EmptyState, Spinner, StatCard } from '../components/shared/ui';
+import { Button, Modal, Input, Alert, EmptyState, Spinner, StatCard, ConfirmDialog } from '../components/shared/ui';
 import { api } from '../lib/api';
 import { useProjectRole } from '../hooks/useProjectRole';
 import { exportSprintSummaryPdf } from '../lib/export';
@@ -127,8 +127,9 @@ export function PlansPage() {
   const [selectedPlan, setSelectedPlan] = useState<TestPlan | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showAssign, setShowAssign] = useState(false);
-  const [showArchiveConfirm, setShowArchiveConfirm] = useState<string | null>(null);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [showArchiveConfirm, setShowArchiveConfirm]       = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm]         = useState<string | null>(null);
+  const [confirmRemoveRunId, setConfirmRemoveRunId]       = useState<string | null>(null);
   const [summaryView, setSummaryView] = useState<'runs' | 'summary'>('runs');
 
   // Create form
@@ -363,7 +364,7 @@ export function PlansPage() {
                             <td>
                               <button
                                 title="Remove from plan"
-                                onClick={() => removeRun.mutate(run.id)}
+                                onClick={() => setConfirmRemoveRunId(run.id)}
                                 style={{
                                   background: 'none', border: 'none', cursor: 'pointer',
                                   color: 'var(--gray-400)', fontSize: '0.875rem', padding: '2px 6px',
@@ -614,6 +615,15 @@ export function PlansPage() {
             </p>
           </Modal>
         </div>
+
+        <ConfirmDialog
+          open={!!confirmRemoveRunId}
+          title="Remove run from plan"
+          message="Remove this run from the plan? The run itself will not be deleted."
+          confirmLabel="Remove"
+          onConfirm={() => { removeRun.mutate(confirmRemoveRunId!); setConfirmRemoveRunId(null); }}
+          onCancel={() => setConfirmRemoveRunId(null)}
+        />
       </AppLayout>
     );
   }

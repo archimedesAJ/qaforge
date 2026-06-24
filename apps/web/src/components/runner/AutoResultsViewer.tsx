@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Button, Modal, Input, Select, Spinner, EmptyState, StatCard, Alert } from '../shared/ui';
+import { Button, Modal, Input, Select, Spinner, EmptyState, StatCard, Alert, ConfirmDialog } from '../shared/ui';
 import { api } from '../../lib/api';
 import { exportResultsCsv, exportResultsPdf, buildExecutiveSummary } from '../../lib/export';
 import { AttachmentUploader, AttachmentItem } from './AttachmentUploader';
@@ -101,6 +101,7 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
   const [defectNotes, setDefectNotes]             = useState('');
   const [defectAttachments, setDefectAttachments] = useState<AttachmentItem[]>([]);
   const [defectError, setDefectError]             = useState('');
+  const [confirmRemoveDefectId, setConfirmRemoveDefectId] = useState<string | null>(null);
 
   const { data: runDetail } = useQuery({
     queryKey: ['run', runId],
@@ -595,7 +596,7 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
                           style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8125rem', color: 'var(--gray-500)', padding: '2px 4px' }}>
                           Edit
                         </button>
-                        <button onClick={e => { e.stopPropagation(); removeDefect.mutate(result.defect!.id); }}
+                        <button onClick={e => { e.stopPropagation(); setConfirmRemoveDefectId(result.defect!.id); }}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8125rem', color: '#DC2626', padding: '2px 4px' }}>
                           Remove
                         </button>
@@ -889,6 +890,15 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
           }}
         />
       </Modal>
+
+      <ConfirmDialog
+        open={!!confirmRemoveDefectId}
+        title="Remove defect"
+        message="Permanently remove this defect? This cannot be undone."
+        confirmLabel="Remove"
+        onConfirm={() => { removeDefect.mutate(confirmRemoveDefectId!); setConfirmRemoveDefectId(null); }}
+        onCancel={() => setConfirmRemoveDefectId(null)}
+      />
     </div>
   );
 }

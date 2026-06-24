@@ -2,7 +2,7 @@ import { useState, FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '../components/shared/AppLayout';
-import { Button, Input, Modal, Alert, Select, EmptyState, Spinner, StatCard } from '../components/shared/ui';
+import { Button, Input, Modal, Alert, Select, EmptyState, Spinner, StatCard, ConfirmDialog } from '../components/shared/ui';
 import { api } from '../lib/api';
 import { useProjectRole } from '../hooks/useProjectRole';
 import { AttachmentUploader, AttachmentItem } from '../components/runner/AttachmentUploader';
@@ -54,10 +54,11 @@ export function DefectsPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const qc = useQueryClient();
   const { isEditor } = useProjectRole(projectId);
-  const [statusFilter, setStatusFilter] = useState('');
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
-  const [editingDefect, setEditingDefect] = useState<Defect | null>(null);
+  const [statusFilter, setStatusFilter]       = useState('');
+  const [updatingId, setUpdatingId]           = useState<string | null>(null);
+  const [showCreate, setShowCreate]           = useState(false);
+  const [editingDefect, setEditingDefect]     = useState<Defect | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['defects', projectId, statusFilter],
@@ -231,7 +232,7 @@ export function DefectsPage() {
                         ✎
                       </button>
                       <button
-                        onClick={() => removeDefect.mutate(defect.id)}
+                        onClick={() => setConfirmDeleteId(defect.id)}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--gray-300)', fontSize: '0.875rem', padding: '2px 4px' }}
                         title="Remove defect"
                       >
@@ -326,6 +327,15 @@ export function DefectsPage() {
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={!!confirmDeleteId}
+        title="Delete defect"
+        message="Permanently delete this defect? This cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={() => { removeDefect.mutate(confirmDeleteId!); setConfirmDeleteId(null); }}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
     </AppLayout>
   );
 }
