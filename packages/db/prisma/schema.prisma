@@ -276,6 +276,7 @@ model Defect {
   externalRef String?   // full URL to the ticket
   status      String    @default("open") // open | in_progress | resolved | closed | wont_fix
   notes       String?
+  attachments Json?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 

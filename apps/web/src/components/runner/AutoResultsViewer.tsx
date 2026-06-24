@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, Modal, Input, Select, Spinner, EmptyState, StatCard, Alert } from '../shared/ui';
 import { api } from '../../lib/api';
 import { exportResultsCsv, exportResultsPdf, buildExecutiveSummary } from '../../lib/export';
+import { AttachmentUploader, AttachmentItem } from './AttachmentUploader';
 
 interface Defect {
   id: string;
@@ -93,12 +94,13 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
   // Defect filing state
   const [filingFor, setFilingFor] = useState<RunResult | null>(null);
   const [editingDefect, setEditingDefect] = useState<{ defect: Defect; resultId: number } | null>(null);
-  const [defectTitle, setDefectTitle]     = useState('');
-  const [defectTracker, setDefectTracker] = useState('jira');
-  const [defectStatus, setDefectStatus]   = useState('open');
-  const [defectRef, setDefectRef]         = useState('');
-  const [defectNotes, setDefectNotes]     = useState('');
-  const [defectError, setDefectError]     = useState('');
+  const [defectTitle, setDefectTitle]             = useState('');
+  const [defectTracker, setDefectTracker]         = useState('jira');
+  const [defectStatus, setDefectStatus]           = useState('open');
+  const [defectRef, setDefectRef]                 = useState('');
+  const [defectNotes, setDefectNotes]             = useState('');
+  const [defectAttachments, setDefectAttachments] = useState<AttachmentItem[]>([]);
+  const [defectError, setDefectError]             = useState('');
 
   const { data: runDetail } = useQuery({
     queryKey: ['run', runId],
@@ -117,12 +119,12 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
 
   // ── Defect mutations ─────────────────────────────────────────
   const fileDefect = useMutation({
-    mutationFn: (body: { title: string; tracker: string; externalRef?: string; notes?: string }) =>
+    mutationFn: (body: { title: string; tracker: string; externalRef?: string; notes?: string; attachments?: AttachmentItem[] }) =>
       api.post<Defect>(`projects/${projectId}/results/${filingFor!.id}/defect`, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['run-results', runId] });
       setFilingFor(null);
-      setDefectTitle(''); setDefectTracker('jira'); setDefectRef(''); setDefectNotes(''); setDefectError('');
+      setDefectTitle(''); setDefectTracker('jira'); setDefectRef(''); setDefectNotes(''); setDefectAttachments([]); setDefectError('');
     },
     onError: (err: Error) => setDefectError(err.message),
   });
@@ -595,7 +597,7 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
                       </>
                     ) : (
                       <button
-                        onClick={e => { e.stopPropagation(); setFilingFor(result); setDefectTitle(result.testCase?.title ?? ''); setDefectTracker('jira'); setDefectRef(''); setDefectNotes(''); setDefectError(''); }}
+                        onClick={e => { e.stopPropagation(); setFilingFor(result); setDefectTitle(result.testCase?.title ?? ''); setDefectTracker('jira'); setDefectRef(''); setDefectNotes(''); setDefectAttachments([]); setDefectError(''); }}
                         style={{
                           background: 'none', border: '1px dashed var(--border-color)', borderRadius: 5,
                           color: 'var(--gray-400)', fontSize: '0.8125rem', padding: '3px 10px', cursor: 'pointer',
@@ -734,6 +736,7 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
                   tracker:     defectTracker,
                   externalRef: defectRef.trim() || undefined,
                   notes:       defectNotes.trim() || undefined,
+                  attachments: defectAttachments,
                 });
               }}
             >
@@ -773,6 +776,7 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
           onChange={e => setDefectNotes(e.target.value)}
           placeholder="Steps to reproduce, affected env, etc."
         />
+        <AttachmentUploader value={defectAttachments} onChange={setDefectAttachments} />
       </Modal>
 
       {/* ── Edit defect modal ── */}

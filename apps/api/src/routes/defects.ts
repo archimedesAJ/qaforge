@@ -6,11 +6,18 @@ import { authenticate, requireRole } from '../middleware/auth.js';
 const VALID_TRACKERS = ['jira', 'github', 'linear', 'internal'] as const;
 const VALID_STATUSES = ['open', 'in_progress', 'resolved', 'closed', 'wont_fix'] as const;
 
+const AttachmentSchema = z.object({
+  name: z.string(),
+  type: z.enum(['screenshot', 'video', 'log', 'file']),
+  url:  z.string(),
+});
+
 const CreateDefectSchema = z.object({
   title:       z.string().min(1),
   tracker:     z.enum(VALID_TRACKERS),
   externalRef: z.string().url().optional().or(z.literal('')),
   notes:       z.string().optional(),
+  attachments: z.array(AttachmentSchema).optional(),
 });
 
 const UpdateDefectSchema = z.object({
@@ -19,6 +26,7 @@ const UpdateDefectSchema = z.object({
   externalRef: z.string().url().optional().or(z.literal('')),
   status:      z.enum(VALID_STATUSES).optional(),
   notes:       z.string().optional(),
+  attachments: z.array(AttachmentSchema).optional(),
 });
 
 const DEFECT_INCLUDE = {
@@ -65,6 +73,7 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
         tracker:     body.tracker,
         externalRef: body.externalRef?.trim() || null,
         notes:       body.notes?.trim() || null,
+        attachments: body.attachments ?? [],
         status:      'open',
       },
       include: DEFECT_INCLUDE,
@@ -97,6 +106,7 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
         tracker:     body.tracker,
         externalRef: body.externalRef?.trim() || null,
         notes:       body.notes?.trim() || null,
+        attachments: body.attachments ?? [],
         status:      'open',
       },
       include: DEFECT_INCLUDE,
@@ -122,6 +132,7 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
         ...(body.externalRef !== undefined && { externalRef: body.externalRef.trim() || null }),
         ...(body.status      !== undefined && { status: body.status }),
         ...(body.notes       !== undefined && { notes: body.notes.trim() || null }),
+        ...(body.attachments !== undefined && { attachments: body.attachments }),
       },
       include: DEFECT_INCLUDE,
     });

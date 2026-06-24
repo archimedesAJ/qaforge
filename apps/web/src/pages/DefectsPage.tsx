@@ -5,6 +5,7 @@ import { AppLayout } from '../components/shared/AppLayout';
 import { Button, Input, Modal, Alert, Select, EmptyState, Spinner, StatCard } from '../components/shared/ui';
 import { api } from '../lib/api';
 import { useProjectRole } from '../hooks/useProjectRole';
+import { AttachmentUploader, AttachmentItem } from '../components/runner/AttachmentUploader';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -15,6 +16,7 @@ interface Defect {
   externalRef: string | null;
   status: string;
   notes: string | null;
+  attachments: AttachmentItem[] | null;
   createdAt: string;
   runResult: {
     id: number;
@@ -231,6 +233,30 @@ export function DefectsPage() {
                   </div>
                 )}
 
+                {/* Attachments */}
+                {defect.attachments && defect.attachments.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                    {defect.attachments.map((att, i) => (
+                      <a
+                        key={i}
+                        href={att.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          padding: '2px 8px', borderRadius: 4,
+                          border: '1px solid var(--border-color)',
+                          background: 'var(--surface-base)',
+                          fontSize: '0.8125rem', color: 'var(--color-primary)',
+                          textDecoration: 'none',
+                        }}
+                      >
+                        📎 {att.name}
+                      </a>
+                    ))}
+                  </div>
+                )}
+
                 {/* Footer — test case + run link, or standalone indicator */}
                 <div style={{ display: 'flex', gap: 12, fontSize: '0.8125rem', color: 'var(--gray-400)', flexWrap: 'wrap' }}>
                   {defect.runResult ? (
@@ -285,17 +311,19 @@ function CreateDefectModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const [title, setTitle]       = useState('');
-  const [tracker, setTracker]   = useState('internal');
-  const [ref, setRef]           = useState('');
-  const [notes, setNotes]       = useState('');
-  const [error, setError]       = useState('');
+  const [title, setTitle]             = useState('');
+  const [tracker, setTracker]         = useState('internal');
+  const [ref, setRef]                 = useState('');
+  const [notes, setNotes]             = useState('');
+  const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
+  const [error, setError]             = useState('');
 
   const mutation = useMutation({
     mutationFn: () => api.post(`projects/${projectId}/defects`, {
       title, tracker,
       externalRef: ref.trim() || undefined,
       notes: notes.trim() || undefined,
+      attachments,
     }),
     onSuccess: onCreated,
     onError: (err: Error) => setError(err.message),
@@ -366,6 +394,7 @@ function CreateDefectModal({
             }}
           />
         </div>
+        <AttachmentUploader value={attachments} onChange={setAttachments} />
       </form>
     </Modal>
   );
