@@ -15,7 +15,7 @@ const AttachmentSchema = z.object({
 const CreateDefectSchema = z.object({
   title:       z.string().min(1),
   tracker:     z.enum(VALID_TRACKERS),
-  externalRef: z.string().url().optional().or(z.literal('')),
+  externalRef: z.string().url().or(z.literal('')).nullish(),
   notes:       z.string().optional(),
   attachments: z.array(AttachmentSchema).optional(),
 });
@@ -23,7 +23,7 @@ const CreateDefectSchema = z.object({
 const UpdateDefectSchema = z.object({
   title:       z.string().min(1).optional(),
   tracker:     z.enum(VALID_TRACKERS).optional(),
-  externalRef: z.string().url().optional().or(z.literal('')),
+  externalRef: z.string().url().or(z.literal('')).nullish(),
   status:      z.enum(VALID_STATUSES).optional(),
   notes:       z.string().optional(),
   attachments: z.array(AttachmentSchema).optional(),
@@ -129,7 +129,7 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
       data: {
         ...(body.title       !== undefined && { title: body.title.trim() }),
         ...(body.tracker     !== undefined && { tracker: body.tracker }),
-        ...(body.externalRef !== undefined && { externalRef: body.externalRef.trim() || null }),
+        ...(body.externalRef !== undefined && { externalRef: body.externalRef?.trim() || null }),
         ...(body.status      !== undefined && { status: body.status }),
         ...(body.notes       !== undefined && { notes: body.notes.trim() || null }),
         ...(body.attachments !== undefined && { attachments: body.attachments }),
