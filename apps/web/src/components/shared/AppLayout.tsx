@@ -1,6 +1,7 @@
 import { ReactNode } from 'react';
 import { NavLink, useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/auth';
+import { ThemeToggle } from './ThemeToggle';
 
 interface NavItem {
   to: string;
@@ -158,6 +159,7 @@ export function AppLayout({ children, title, actions }: AppLayoutProps) {
             <div style={{ flex: 1 }}>
               {title && <h1 style={{ fontSize: '1.0625rem', fontWeight: 600, color: 'var(--gray-900)' }}>{title}</h1>}
             </div>
+            <ThemeToggle />
             {actions && <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>{actions}</div>}
           </header>
         )}

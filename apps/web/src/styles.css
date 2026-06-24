@@ -1,7 +1,7 @@
 /* ── Reset ───────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { font-size: 16px; -webkit-font-smoothing: antialiased; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f9fafb; color: #111827; line-height: 1.5; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--gray-50); color: var(--gray-900); line-height: 1.5; }
 a { color: inherit; text-decoration: none; }
 button { cursor: pointer; font-family: inherit; }
 input, textarea, select { font-family: inherit; }
@@ -320,3 +320,71 @@ tr:hover td { background: var(--gray-50); }
 .progress-fill.success { background: var(--color-success); }
 .progress-fill.danger  { background: var(--color-danger); }
 .progress-fill.warning { background: var(--color-warning); }
+
+/* ── Dark mode ───────────────────────────────────────────── */
+:root { color-scheme: light; }
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --gray-50:  #0f172a;
+  --gray-100: #1e293b;
+  --gray-200: #334155;
+  --gray-300: #475569;
+  --gray-400: #94a3b8;
+  --gray-500: #94a3b8;
+  --gray-600: #cbd5e1;
+  --gray-700: #e2e8f0;
+  --gray-800: #f1f5f9;
+  --gray-900: #f8fafc;
+
+  --surface-base:    #1e293b;
+  --surface-raised:  #263347;
+  --surface-overlay: #1e293b;
+  --surface-sunken:  #0f172a;
+
+  --border-color: #334155;
+
+  --color-primary:       #3b82f6;
+  --color-primary-hover: #2563eb;
+  --color-primary-light: rgba(59, 130, 246, 0.15);
+
+  --color-danger-light:  rgba(220, 38, 38, 0.15);
+  --color-success-light: rgba(22, 163, 74, 0.15);
+  --color-warning-light: rgba(217, 119, 6, 0.15);
+  --color-info-light:    rgba(59, 130, 246, 0.15);
+
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.3);
+}
+
+/* Sidebar stays dark in both modes */
+[data-theme="dark"] .app-sidebar { background: #0d1424; }
+
+/* Input focus ring */
+[data-theme="dark"] .input:focus { box-shadow: 0 0 0 3px rgb(59 130 246 / 0.2); }
+
+/* Alert borders */
+[data-theme="dark"] .alert-error   { border-color: rgba(220, 38, 38, 0.4); }
+[data-theme="dark"] .alert-success { border-color: rgba(22, 163, 74, 0.4); }
+[data-theme="dark"] .alert-info    { border-color: rgba(29, 78, 216, 0.4); }
+
+/* Table row hover */
+[data-theme="dark"] tr:hover td { background: var(--gray-100); }
+
+/* Badge overrides */
+[data-theme="dark"] .badge-p0         { background: #450a0a; color: #fca5a5; }
+[data-theme="dark"] .badge-p1         { background: #451a03; color: #fde68a; }
+[data-theme="dark"] .badge-p2         { background: #1e3a5f; color: #93c5fd; }
+[data-theme="dark"] .badge-p3         { background: #1f2937; color: #d1d5db; }
+[data-theme="dark"] .badge-pass       { background: #052e16; color: #86efac; }
+[data-theme="dark"] .badge-fail       { background: #450a0a; color: #fca5a5; }
+[data-theme="dark"] .badge-blocked    { background: #451a03; color: #fde68a; }
+[data-theme="dark"] .badge-skipped    { background: #1f2937; color: #d1d5db; }
+[data-theme="dark"] .badge-manual     { background: #3b0764; color: #d8b4fe; }
+[data-theme="dark"] .badge-api        { background: #1e3a5f; color: #93c5fd; }
+[data-theme="dark"] .badge-ui-auto    { background: #052e16; color: #86efac; }
+[data-theme="dark"] .badge-perf       { background: #450a0a; color: #fca5a5; }
+[data-theme="dark"] .badge-exploratory { background: #451a03; color: #fde68a; }
+[data-theme="dark"] .badge-functional  { background: #052e16; color: #86efac; }
