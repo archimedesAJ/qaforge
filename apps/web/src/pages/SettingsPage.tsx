@@ -57,15 +57,15 @@ const DEFAULT_NOTIFS: NotifSetting[] = [
 ];
 
 export function SettingsPage() {
-  const { projectId } = useParams<{ projectId: string }>();
-  const [tab, setTab]   = useState<Tab>('general');
-  const { isAdmin }     = useProjectRole(projectId);
-  const isSystemAdmin   = useAuthStore(s => s.user?.systemAdmin ?? false);
+  const { projectId }  = useParams<{ projectId: string }>();
+  const { isAdmin }    = useProjectRole(projectId);
+  const isSystemAdmin  = useAuthStore(s => s.user?.systemAdmin ?? false);
+  const [tab, setTab]  = useState<Tab>(() => isSystemAdmin ? 'general' : 'team');
 
   if (!projectId) return null;
 
-  const TABS: Array<{ id: Tab; label: string }> = [
-    { id: 'general',       label: 'General'      },
+  const ALL_TABS: Array<{ id: Tab; label: string; sysAdminOnly?: boolean }> = [
+    { id: 'general',       label: 'General',       sysAdminOnly: true },
     { id: 'team',          label: 'Team'         },
     { id: 'apikeys',       label: 'API keys'     },
     { id: 'environments',  label: 'Environments' },
@@ -73,6 +73,8 @@ export function SettingsPage() {
     { id: 'integrations',  label: 'Integrations' },
     { id: 'danger',        label: 'Danger zone'  },
   ];
+
+  const TABS = ALL_TABS.filter(t => !t.sysAdminOnly || isSystemAdmin);
 
   return (
     <AppLayout title="Settings">
