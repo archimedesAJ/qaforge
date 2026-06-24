@@ -6,7 +6,7 @@ import { mkdir, stat } from 'node:fs/promises';
 import { join, extname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-const UPLOADS_DIR = join(process.cwd(), 'uploads');
+const UPLOADS_DIR = process.env.UPLOADS_DIR ?? join(process.cwd(), 'uploads');
 await mkdir(UPLOADS_DIR, { recursive: true });
 
 const MIME: Record<string, string> = {
