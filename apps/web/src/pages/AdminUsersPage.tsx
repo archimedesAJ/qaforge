@@ -205,7 +205,7 @@ export function AdminUsersPage() {
                               cursor: 'pointer', fontSize: '0.8125rem',
                             }}
                           >
-                            <span style={{ color: 'var(--gray-700)', fontWeight: 500 }}>{m.project.name}</span>
+                            <span style={{ color: m.isSysAdminOnly ? '#78350F' : 'var(--gray-700)', fontWeight: 500 }}>{m.project.name}</span>
                             <span style={{
                               padding: '1px 6px', borderRadius: 4,
                               fontSize: '0.6875rem', fontWeight: 600,
