@@ -310,6 +310,9 @@ export function AdminDashboardPage() {
             <Button variant="secondary" size="sm" onClick={() => navigate('/admin/users')}>
               👥 Manage users
             </Button>
+            <Button variant="secondary" size="sm" onClick={() => navigate('/admin/activity')}>
+              📋 Activity logs
+            </Button>
           </div>
         </div>
 

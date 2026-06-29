@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { sendInviteEmail, sendProjectAddedEmail } from '../services/email.js';
+import { logActivity } from '../lib/activityLog.js';
 import { processDigest } from '../jobs/weeklyDigest.js';
 
 const CATEGORIES = ['client-facing', 'internal', 'infrastructure', 'third-party'] as const;
@@ -158,6 +159,8 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         projectName: project.name,
         role:        body.role,
       }).catch(() => {});
+      const { isSystemAdmin } = req as { isSystemAdmin?: boolean };
+      logActivity({ userId, isSystemAdmin, projectId, action: 'member_added', entityType: 'member', entityName: body.email });
       return reply.code(201).send({ status: 'added', email: body.email });
     }
 
@@ -207,12 +210,16 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
       token,
     });
 
+    const { isSystemAdmin } = req as { isSystemAdmin?: boolean };
+    logActivity({ userId, isSystemAdmin, projectId, action: 'member_invited', entityType: 'member', entityName: body.email });
     return reply.code(201).send({ status: 'invited', email: body.email });
   });
 
   // PATCH /projects/:projectId/members/:memberId — change role — admin only
   app.patch('/:projectId/members/:memberId', { preHandler: requireRole('admin') }, async (req, reply) => {
     const { projectId, memberId } = req.params as { projectId: string; memberId: string };
+    const { userId } = req.user as { userId: string };
+    const { isSystemAdmin } = req as { isSystemAdmin?: boolean };
     const { role } = req.body as { role: string };
 
     const validRoles = ['admin', 'manager', 'editor', 'viewer'];
@@ -222,15 +229,26 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
       where: { projectId_userId: { projectId, userId: memberId } },
       data: { role },
     });
+
+    logActivity({ userId, isSystemAdmin, projectId, action: 'member_role_changed', entityType: 'member', entityId: memberId });
+
     return { updated: true };
   });
 
   // DELETE /projects/:projectId/members/:memberId — admin only
   app.delete('/:projectId/members/:memberId', { preHandler: requireRole('admin') }, async (req, reply) => {
     const { projectId, memberId } = req.params as { projectId: string; memberId: string };
+    const { userId } = req.user as { userId: string };
+    const { isSystemAdmin } = req as { isSystemAdmin?: boolean };
+
+    const memberUser = await prisma.user.findUnique({ where: { id: memberId }, select: { name: true, email: true } });
+
     await prisma.projectMember.delete({
       where: { projectId_userId: { projectId, userId: memberId } },
     });
+
+    logActivity({ userId, isSystemAdmin, projectId, action: 'member_removed', entityType: 'member', entityId: memberId, entityName: memberUser?.name || memberUser?.email });
+
     return reply.code(204).send();
   });
 
@@ -605,5 +623,41 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
       orderBy: { createdAt: 'asc' },
     });
     return { users };
+  });
+
+  // GET /sysadmin/activity — paginated activity log (sysadmin only)
+  app.get('/sysadmin/activity', async (req, reply) => {
+    const caller = req as unknown as { isSystemAdmin?: boolean };
+    if (!caller.isSystemAdmin) return reply.code(403).send({ error: 'System admin access required' });
+
+    const { projectId, userId, action, since, until, page = '1', limit = '50' } =
+      req.query as Record<string, string>;
+
+    const where: Record<string, unknown> = {
+      ...(projectId && { projectId }),
+      ...(userId    && { userId }),
+      ...(action    && { action }),
+      ...((since || until) && {
+        createdAt: {
+          ...(since && { gte: new Date(since) }),
+          ...(until && { lte: new Date(until) }),
+        },
+      }),
+    };
+
+    const pageNum  = Math.max(1, Number(page));
+    const limitNum = Math.min(100, Math.max(1, Number(limit)));
+
+    const [logs, total] = await Promise.all([
+      prisma.activityLog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (pageNum - 1) * limitNum,
+        take: limitNum,
+      }),
+      prisma.activityLog.count({ where }),
+    ]);
+
+    return { logs, pagination: { page: pageNum, limit: limitNum, total } };
   });
 };

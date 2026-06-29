@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
+import { logActivity } from '../lib/activityLog.js';
 import { buildExcelBuffer } from '../lib/excel.js';
 
 const CreateCaseSchema = z.object({
@@ -114,6 +115,9 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
       data: { lineageId: testCase.id },
     });
 
+    const { isSystemAdmin } = req as { isSystemAdmin?: boolean };
+    logActivity({ userId, isSystemAdmin, projectId, action: 'case_created', entityType: 'test_case', entityId: testCase.id, entityName: testCase.title });
+
     return reply.code(201).send({ ...testCase, lineageId: testCase.id });
   });
 
@@ -158,6 +162,9 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
         archived: false,
       },
     });
+
+    const { isSystemAdmin } = req as { isSystemAdmin?: boolean };
+    logActivity({ userId, isSystemAdmin, projectId, action: 'case_updated', entityType: 'test_case', entityId: newCase.id, entityName: newCase.title });
 
     return { ...newCase, previousVersion: existing.version };
   });

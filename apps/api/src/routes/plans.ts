@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
+import { logActivity } from '../lib/activityLog.js';
 
 const CreatePlanSchema = z.object({
   name:        z.string().min(1),
@@ -78,6 +79,10 @@ export const plansRoutes: FastifyPluginAsync = async (app) => {
       },
       include: { createdBy: { select: { id: true, name: true } } },
     });
+
+    const { isSystemAdmin } = req as { isSystemAdmin?: boolean };
+    const { projectId: pid } = req.params as { projectId: string };
+    logActivity({ userId, isSystemAdmin, projectId: pid, action: 'plan_created', entityType: 'plan', entityId: plan.id, entityName: plan.name });
 
     return reply.code(201).send({ ...plan, runs: [], aggregate: emptyAggregate() });
   });
@@ -239,7 +244,9 @@ export const plansRoutes: FastifyPluginAsync = async (app) => {
 
   // PUT /:projectId/plans/:planId — update plan metadata
   app.put('/:projectId/plans/:planId', { preHandler: requireRole('editor') }, async (req, reply) => {
-    const { planId } = req.params as { projectId: string; planId: string };
+    const { projectId, planId } = req.params as { projectId: string; planId: string };
+    const { userId } = req.user as { userId: string };
+    const { isSystemAdmin } = req as { isSystemAdmin?: boolean };
     const body = UpdatePlanSchema.parse(req.body);
 
     const existing = await prisma.testPlan.findUnique({ where: { id: planId } });
@@ -257,12 +264,18 @@ export const plansRoutes: FastifyPluginAsync = async (app) => {
       include: { createdBy: { select: { id: true, name: true } } },
     });
 
+    if (body.status === 'archived') {
+      logActivity({ userId, isSystemAdmin, projectId, action: 'plan_archived', entityType: 'plan', entityId: planId, entityName: updated.name });
+    }
+
     return updated;
   });
 
   // DELETE /:projectId/plans/:planId — delete plan (detaches runs, does not delete them)
   app.delete('/:projectId/plans/:planId', { preHandler: requireRole('editor') }, async (req, reply) => {
-    const { planId } = req.params as { projectId: string; planId: string };
+    const { projectId, planId } = req.params as { projectId: string; planId: string };
+    const { userId } = req.user as { userId: string };
+    const { isSystemAdmin } = req as { isSystemAdmin?: boolean };
 
     const existing = await prisma.testPlan.findUnique({ where: { id: planId } });
     if (!existing) return reply.code(404).send({ error: 'Plan not found' });
@@ -270,6 +283,8 @@ export const plansRoutes: FastifyPluginAsync = async (app) => {
     // Detach all runs first
     await prisma.testRun.updateMany({ where: { planId }, data: { planId: null } });
     await prisma.testPlan.delete({ where: { id: planId } });
+
+    logActivity({ userId, isSystemAdmin, projectId, action: 'plan_deleted', entityType: 'plan', entityId: planId, entityName: existing.name });
 
     return reply.code(204).send();
   });

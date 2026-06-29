@@ -287,6 +287,24 @@ model Defect {
   @@index([projectId])
 }
 
+model ActivityLog {
+  id          String   @id @default(uuid())
+  userId      String
+  userName    String
+  userEmail   String
+  projectId   String?
+  projectName String?
+  action      String
+  entityType  String
+  entityId    String?
+  entityName  String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([projectId])
+  @@index([createdAt])
+}
+
 model ExploratorySession {
   id         String    @id @default(uuid())
   runId      String    @unique

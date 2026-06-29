@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
+import { logActivity } from '../lib/activityLog.js';
 import { aggregateOnRunClose } from '../services/aggregation.js';
 import { parseJUnitXml } from '../services/junitParser.js';
 import { ingestPerfResult } from '../services/perfIngest.js';
@@ -50,6 +51,9 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
         skipDuplicates: true,
       });
     }
+
+    const { isSystemAdmin } = req as { isSystemAdmin?: boolean };
+    logActivity({ userId, isSystemAdmin, projectId, action: 'run_started', entityType: 'run', entityId: run.id, entityName: run.name });
 
     return reply.code(201).send(run);
   });
@@ -249,6 +253,8 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
   // PUT /projects/:projectId/runs/:runId/close — editor+
   app.put('/:projectId/runs/:runId/close', { preHandler: requireRole('editor') }, async (req, reply) => {
     const { projectId, runId } = req.params as { projectId: string; runId: string };
+    const { userId } = req.user as { userId: string };
+    const { isSystemAdmin } = req as { isSystemAdmin?: boolean };
     const run = await prisma.testRun.findUnique({ where: { id: runId } });
     if (!run) return reply.code(404).send({ error: 'Run not found' });
     if (run.status === 'closed') return reply.code(409).send({ error: 'Run already closed' });
@@ -265,6 +271,9 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
     const passRate = decided > 0 ? Math.round((counts.pass / decided) * 100) : 0;
     await prisma.testRun.update({ where: { id: runId }, data: { status: 'closed', endedAt: new Date() } });
     aggregateOnRunClose(runId, projectId).catch(() => {});
+
+    logActivity({ userId, isSystemAdmin, projectId, action: 'run_closed', entityType: 'run', entityId: runId, entityName: run.name });
+
     return { status: 'closed', summary: { ...counts, total, decided, passRate } };
   });
 

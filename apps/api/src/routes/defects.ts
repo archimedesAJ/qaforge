@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
+import { logActivity } from '../lib/activityLog.js';
 
 const VALID_TRACKERS = ['jira', 'github', 'linear', 'internal'] as const;
 const VALID_STATUSES = ['open', 'in_progress', 'resolved', 'closed', 'wont_fix'] as const;
@@ -64,6 +65,8 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
   // POST /:projectId/defects — file a standalone defect (not linked to any test result)
   app.post('/:projectId/defects', { preHandler: requireRole('editor') }, async (req, reply) => {
     const { projectId } = req.params as { projectId: string };
+    const { userId } = req.user as { userId: string };
+    const { isSystemAdmin } = req as { isSystemAdmin?: boolean };
     const body = CreateDefectSchema.parse(req.body);
 
     const defect = await prisma.defect.create({
@@ -79,12 +82,16 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
       include: DEFECT_INCLUDE,
     });
 
+    logActivity({ userId, isSystemAdmin, projectId, action: 'defect_filed', entityType: 'defect', entityId: defect.id, entityName: defect.title ?? undefined });
+
     return reply.code(201).send(defect);
   });
 
   // POST /:projectId/results/:resultId/defect — file a defect against a failed result
   app.post('/:projectId/results/:resultId/defect', { preHandler: requireRole('editor') }, async (req, reply) => {
     const { projectId, resultId } = req.params as { projectId: string; resultId: string };
+    const { userId } = req.user as { userId: string };
+    const { isSystemAdmin } = req as { isSystemAdmin?: boolean };
     const body = CreateDefectSchema.parse(req.body);
 
     const result = await prisma.runResult.findUnique({
@@ -112,12 +119,16 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
       include: DEFECT_INCLUDE,
     });
 
+    logActivity({ userId, isSystemAdmin, projectId, action: 'defect_filed', entityType: 'defect', entityId: defect.id, entityName: defect.title ?? undefined });
+
     return reply.code(201).send(defect);
   });
 
   // PATCH /:projectId/defects/:defectId — update status, ref, notes
   app.patch('/:projectId/defects/:defectId', { preHandler: requireRole('editor') }, async (req, reply) => {
     const { projectId, defectId } = req.params as { projectId: string; defectId: string };
+    const { userId } = req.user as { userId: string };
+    const { isSystemAdmin } = req as { isSystemAdmin?: boolean };
     const body = UpdateDefectSchema.parse(req.body);
 
     const existing = await prisma.defect.findUnique({ where: { id: defectId } });
@@ -137,18 +148,25 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
       include: DEFECT_INCLUDE,
     });
 
+    logActivity({ userId, isSystemAdmin, projectId, action: 'defect_updated', entityType: 'defect', entityId: defectId, entityName: updated.title ?? undefined });
+
     return updated;
   });
 
   // DELETE /:projectId/defects/:defectId — remove a defect
   app.delete('/:projectId/defects/:defectId', { preHandler: requireRole('editor') }, async (req, reply) => {
     const { projectId, defectId } = req.params as { projectId: string; defectId: string };
+    const { userId } = req.user as { userId: string };
+    const { isSystemAdmin } = req as { isSystemAdmin?: boolean };
 
     const existing = await prisma.defect.findUnique({ where: { id: defectId } });
     if (!existing) return reply.code(404).send({ error: 'Defect not found' });
     if (existing.projectId !== projectId) return reply.code(403).send({ error: 'Forbidden' });
 
     await prisma.defect.delete({ where: { id: defectId } });
+
+    logActivity({ userId, isSystemAdmin, projectId, action: 'defect_deleted', entityType: 'defect', entityId: defectId, entityName: existing.title ?? undefined });
+
     return reply.code(204).send();
   });
 };
