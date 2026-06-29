@@ -279,9 +279,11 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
     const isDateBounded = !!(sinceDate && untilDate);
 
     // ── Base queries (always run, unaffected by date range) ──────
+    const AUTOMATED_TYPES = ['ui_auto', 'api', 'perf', 'functional'];
+
     const [
       totalUsers, activatedUsers, projects, recentRuns,
-      openDefectsGroups, openRunsCount, flakyGroups, activePlans, recentlyClosedPlans,
+      openDefectsGroups, openRunsCount, flakyGroups, activePlans, caseTypeGroups, recentlyClosedPlans,
     ] = await Promise.all([
       prisma.user.count(),
       prisma.user.count({ where: { activated: true } }),
@@ -331,6 +333,12 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
             },
           },
         },
+      }),
+      // Automation split — automated (ui_auto, api, perf, functional) vs manual
+      prisma.testCase.groupBy({
+        by: ['projectId', 'type'],
+        where: { archived: false },
+        _count: { id: true },
       }),
       // Plans archived in the last 14 days — "recently completed"
       prisma.testPlan.findMany({
@@ -389,6 +397,17 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
 
     const flakyMap: Record<string, number> = {};
     for (const g of flakyGroups) flakyMap[g.projectId] = g._count.id;
+
+    const automatedMap: Record<string, number> = {};
+    const manualMap:    Record<string, number> = {};
+    for (const g of caseTypeGroups) {
+      const pid = g.projectId;
+      if (AUTOMATED_TYPES.includes(g.type)) {
+        automatedMap[pid] = (automatedMap[pid] ?? 0) + g._count.id;
+      } else {
+        manualMap[pid] = (manualMap[pid] ?? 0) + g._count.id;
+      }
+    }
 
     // ── KPI queries — date-bounded live OR pre-aggregated snapshot ──
     let covStateMap:     Record<string, { healthy: number; stale: number; failing: number }> = {};
@@ -546,8 +565,10 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
             ? Math.round((executed / totalCases) * 100)
             : null,
           coverageStats: cov,
-          flakyCount: flakyMap[p.id] ?? 0,
-          activePlan: activePlanByProject[p.id] ?? null,
+          flakyCount:     flakyMap[p.id]     ?? 0,
+          activePlan:     activePlanByProject[p.id] ?? null,
+          automatedCases: automatedMap[p.id] ?? 0,
+          manualCases:    manualMap[p.id]    ?? 0,
         };
       }),
       recentRuns,

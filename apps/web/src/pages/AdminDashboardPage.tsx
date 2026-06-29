@@ -67,6 +67,8 @@ interface ProjectHealth {
   coverageStats: { healthy: number; stale: number; failing: number };
   flakyCount: number;
   activePlan: ActivePlan | null;
+  automatedCases: number;
+  manualCases: number;
 }
 
 interface RecentRun {
@@ -171,9 +173,12 @@ function getPeriodLabel(preset: DatePreset, customFrom: string, customUntil: str
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+type ViewMode = 'overview' | 'stakeholder';
+
 export function AdminDashboardPage() {
   const navigate = useNavigate();
-  const [datePreset, setDatePreset] = useState<DatePreset>('30d');
+  const [viewMode, setViewMode]                   = useState<ViewMode>('overview');
+  const [datePreset, setDatePreset] = useState<DatePreset>('7d');
   const [customFrom, setCustomFrom] = useState('');
   const [customUntil, setCustomUntil] = useState('');
   const [showReportModal, setShowReportModal]     = useState(false);
@@ -281,10 +286,25 @@ export function AdminDashboardPage() {
         {/* Back nav + header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
           <Button variant="ghost" size="sm" onClick={() => navigate('/')}>← All projects</Button>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {/* View toggle */}
+            <div style={{
+              display: 'flex', gap: 0, border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden',
+            }}>
+              {(['overview', 'stakeholder'] as ViewMode[]).map(mode => (
+                <button key={mode} onClick={() => setViewMode(mode)} style={{
+                  padding: '6px 14px', fontSize: '0.8125rem', fontWeight: 500, border: 'none', cursor: 'pointer',
+                  background: viewMode === mode ? 'var(--color-primary)' : 'var(--surface-base)',
+                  color: viewMode === mode ? '#fff' : 'var(--gray-600)',
+                  transition: 'all 0.15s',
+                }}>
+                  {mode === 'overview' ? 'Overview' : '📊 Thursday Report'}
+                </button>
+              ))}
+            </div>
             {stats && projects.length > 0 && (
               <Button variant="secondary" size="sm" onClick={openReportModal}>
-                ↓ Export report
+                ↓ Export PDF
               </Button>
             )}
             <Button variant="secondary" size="sm" onClick={() => navigate('/admin/users')}>
@@ -359,7 +379,7 @@ export function AdminDashboardPage() {
           </div>
         ) : null}
 
-        {!isLoading && stats && (
+        {!isLoading && stats && viewMode === 'overview' && (
           <>
             {/* System stats */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 14, marginBottom: 14 }}>
@@ -449,6 +469,7 @@ export function AdminDashboardPage() {
                         <th>Project</th>
                         <th style={{ textAlign: 'center' }}>Members</th>
                         <th style={{ textAlign: 'center' }}>Cases</th>
+                        <th style={{ textAlign: 'center' }}>Automation</th>
                         <th style={{ textAlign: 'center' }}>Pass rate</th>
                         <th style={{ textAlign: 'center' }}>Exec. coverage</th>
                         <th style={{ textAlign: 'center' }}>Flaky</th>
@@ -533,6 +554,24 @@ export function AdminDashboardPage() {
                             {/* Cases */}
                             <td style={{ textAlign: 'center', color: 'var(--gray-600)' }}>
                               {p.counts.cases}
+                            </td>
+
+                            {/* Automation % */}
+                            <td style={{ textAlign: 'center' }}>
+                              {p.counts.cases > 0 ? (() => {
+                                const pct = Math.round((p.automatedCases / p.counts.cases) * 100);
+                                const color = pct >= 70 ? '#16A34A' : pct >= 40 ? '#D97706' : '#6B7280';
+                                return (
+                                  <div>
+                                    <span style={{ fontWeight: 700, fontSize: '0.875rem', color }}>{pct}%</span>
+                                    <div style={{ fontSize: '0.6875rem', color: 'var(--gray-400)', marginTop: 1 }}>
+                                      {p.automatedCases} / {p.counts.cases}
+                                    </div>
+                                  </div>
+                                );
+                              })() : (
+                                <span style={{ color: 'var(--gray-300)', fontSize: '0.875rem' }}>—</span>
+                              )}
                             </td>
 
                             {/* Pass rate */}
@@ -756,6 +795,18 @@ export function AdminDashboardPage() {
             </div>
           </>
         )}
+
+        {/* ── Thursday / Stakeholder Report view ── */}
+        {!isLoading && stats && viewMode === 'stakeholder' && (
+          <StakeholderView
+            stats={stats}
+            projects={projects}
+            recentlyCompleted={recentlyCompleted}
+            period={getPeriodLabel(datePreset, customFrom, customUntil)}
+            onExport={openReportModal}
+            navigate={navigate}
+          />
+        )}
       </div>
 
       {/* ── Report summary modal ── */}
@@ -820,5 +871,290 @@ export function AdminDashboardPage() {
         </div>
       )}
     </AppLayout>
+  );
+}
+
+// ── Thursday / Stakeholder Report view ───────────────────────────────────────
+
+function SlideHeader({ number, title, subtitle }: { number: number; title: string; subtitle: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
+      <div style={{
+        width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+        background: 'var(--color-primary)', color: '#fff',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontWeight: 700, fontSize: '1rem',
+      }}>
+        {number}
+      </div>
+      <div>
+        <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--gray-900)' }}>{title}</div>
+        <div style={{ fontSize: '0.8125rem', color: 'var(--gray-400)', marginTop: 1 }}>{subtitle}</div>
+      </div>
+    </div>
+  );
+}
+
+function StakeholderView({
+  stats, projects, recentlyCompleted, period, onExport, navigate,
+}: {
+  stats: OverviewStats;
+  projects: ProjectHealth[];
+  recentlyCompleted: RecentlyCompletedPlan[];
+  period: string;
+  onExport: () => void;
+  navigate: (path: string) => void;
+}) {
+  const totalAutomated   = projects.reduce((s, p) => s + p.automatedCases, 0);
+  const totalCases       = projects.reduce((s, p) => s + p.counts.cases,   0);
+  const overallAutoPct   = totalCases > 0 ? Math.round((totalAutomated / totalCases) * 100) : 0;
+
+  const withPassRate     = projects.filter(p => p.passRate !== null);
+  const avgPassRate      = withPassRate.length > 0
+    ? Math.round(withPassRate.reduce((s, p) => s + p.passRate!, 0) / withPassRate.length)
+    : null;
+
+  const byPassRate       = [...projects].sort((a, b) => (b.passRate ?? -1) - (a.passRate ?? -1));
+  const byAutomation     = [...projects].sort((a, b) => {
+    const pctA = a.counts.cases > 0 ? a.automatedCases / a.counts.cases : -1;
+    const pctB = b.counts.cases > 0 ? b.automatedCases / b.counts.cases : -1;
+    return pctB - pctA;
+  });
+
+  const activeSprintProjects = projects.filter(p => p.activePlan !== null);
+
+  const slideBox: React.CSSProperties = {
+    background: 'var(--surface-base)',
+    border: '1px solid var(--border-color)',
+    borderRadius: 12,
+    padding: '20px 24px',
+    marginBottom: 20,
+  };
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: '1.0625rem', color: 'var(--gray-900)' }}>
+            Thursday Stakeholder Report
+          </div>
+          <div style={{ fontSize: '0.8125rem', color: 'var(--gray-400)', marginTop: 2 }}>
+            {period} · {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+          </div>
+        </div>
+        <Button variant="secondary" size="sm" onClick={onExport}>↓ Export PDF</Button>
+      </div>
+
+      {/* ── Slide 1: Quality Health ───────────────────────────────── */}
+      <div style={slideBox}>
+        <SlideHeader number={1} title="Quality Health" subtitle="Overall test quality across all projects this period" />
+
+        {/* KPI row */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+          {[
+            { label: 'Avg pass rate',  value: avgPassRate !== null ? `${avgPassRate}%` : '—', color: avgPassRate !== null ? kpiColor(avgPassRate, [90, 70]) : 'var(--gray-400)' },
+            { label: 'Open defects',   value: stats.openDefects, color: stats.openDefects > 0 ? '#DC2626' : 'var(--color-success)' },
+            { label: 'Active sprints', value: stats.activeSprints, color: 'var(--color-primary)' },
+            { label: 'Sprints at risk',value: stats.sprintsAtRisk, color: stats.sprintsAtRisk > 0 ? '#DC2626' : 'var(--color-success)' },
+          ].map(k => (
+            <div key={k.label} style={{
+              background: 'var(--gray-50)', borderRadius: 8, padding: '14px 16px', textAlign: 'center',
+            }}>
+              <div style={{ fontSize: '1.75rem', fontWeight: 700, color: k.color, lineHeight: 1 }}>{k.value}</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--gray-500)', marginTop: 5, fontWeight: 500 }}>{k.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Top projects by pass rate */}
+        <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
+          Projects by pass rate
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {byPassRate.slice(0, 8).map(p => {
+            const pct = p.passRate;
+            const color = pct === null ? 'var(--gray-300)' : kpiColor(pct, [90, 70]);
+            return (
+              <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
+                onClick={() => navigate(`/projects/${p.id}`)}>
+                <div style={{ flex: '0 0 200px', fontSize: '0.875rem', color: 'var(--gray-800)', fontWeight: 500,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {p.name}
+                </div>
+                <div style={{ flex: 1, height: 8, background: 'var(--gray-100)', borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%', borderRadius: 4, transition: 'width 0.4s',
+                    background: color,
+                    width: pct !== null ? `${pct}%` : '0%',
+                  }} />
+                </div>
+                <div style={{ flex: '0 0 44px', textAlign: 'right', fontWeight: 700, fontSize: '0.875rem', color }}>
+                  {pct !== null ? `${pct}%` : '—'}
+                </div>
+                {p.openDefects > 0 && (
+                  <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#DC2626',
+                    background: '#FEE2E2', padding: '1px 7px', borderRadius: 20 }}>
+                    {p.openDefects} defects
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Slide 2: Automation Coverage ─────────────────────────── */}
+      <div style={slideBox}>
+        <SlideHeader number={2} title="Automation Coverage" subtitle="Automated vs manual test cases per project" />
+
+        {/* Summary */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+          {[
+            { label: 'Total test cases', value: totalCases.toLocaleString(), color: 'var(--color-primary)' },
+            { label: 'Automated',        value: totalAutomated.toLocaleString(), color: '#16A34A' },
+            { label: 'Automation %',     value: `${overallAutoPct}%`, color: overallAutoPct >= 70 ? '#16A34A' : overallAutoPct >= 40 ? '#D97706' : '#6B7280' },
+          ].map(k => (
+            <div key={k.label} style={{
+              background: 'var(--gray-50)', borderRadius: 8, padding: '14px 16px', textAlign: 'center',
+            }}>
+              <div style={{ fontSize: '1.75rem', fontWeight: 700, color: k.color, lineHeight: 1 }}>{k.value}</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--gray-500)', marginTop: 5, fontWeight: 500 }}>{k.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Per-project automation bars */}
+        <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
+          Per project
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {byAutomation.map(p => {
+            const pct   = p.counts.cases > 0 ? Math.round((p.automatedCases / p.counts.cases) * 100) : 0;
+            const color = pct >= 70 ? '#16A34A' : pct >= 40 ? '#D97706' : '#6B7280';
+            return (
+              <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
+                onClick={() => navigate(`/projects/${p.id}`)}>
+                <div style={{ flex: '0 0 200px', fontSize: '0.875rem', color: 'var(--gray-800)', fontWeight: 500,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {p.name}
+                </div>
+                <div style={{ flex: 1, height: 8, background: 'var(--gray-100)', borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%', borderRadius: 4, transition: 'width 0.4s',
+                    background: color,
+                    width: p.counts.cases > 0 ? `${pct}%` : '0%',
+                  }} />
+                </div>
+                <div style={{ flex: '0 0 44px', textAlign: 'right', fontWeight: 700, fontSize: '0.875rem', color }}>
+                  {p.counts.cases > 0 ? `${pct}%` : '—'}
+                </div>
+                <div style={{ flex: '0 0 80px', textAlign: 'right', fontSize: '0.75rem', color: 'var(--gray-400)' }}>
+                  {p.automatedCases} / {p.counts.cases}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Slide 3: Sprint & Defect Readiness ───────────────────── */}
+      <div style={slideBox}>
+        <SlideHeader number={3} title="Sprint & Defect Readiness" subtitle="Active sprints status and open defects per project" />
+
+        {activeSprintProjects.length === 0 ? (
+          <div style={{ color: 'var(--gray-400)', fontSize: '0.875rem', fontStyle: 'italic', marginBottom: 16 }}>
+            No active sprint plans this period.
+          </div>
+        ) : (
+          <>
+            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
+              Active sprints
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 20 }}>
+              {activeSprintProjects.map(p => {
+                const ap       = p.activePlan!;
+                const atRisk   = ap.failCount > 0 || (ap.passRate !== null && ap.passRate < 70);
+                const endsAt   = ap.endsAt ? new Date(ap.endsAt) : null;
+                const daysLeft = endsAt ? Math.ceil((endsAt.getTime() - Date.now()) / 86_400_000) : null;
+                const isOverdue = daysLeft !== null && daysLeft < 0;
+                const statusColor = isOverdue ? '#D97706' : atRisk ? '#DC2626' : '#16A34A';
+                const statusBg    = isOverdue ? '#FEF3C7' : atRisk ? '#FEE2E2' : '#DCFCE7';
+                const statusLabel = isOverdue ? 'Overdue' : atRisk ? 'At risk' : 'On track';
+                return (
+                  <div key={p.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+                    padding: '8px 12px', borderRadius: 8,
+                    background: 'var(--gray-50)', cursor: 'pointer',
+                  }} onClick={() => navigate(`/projects/${p.id}/plans`)}>
+                    <div style={{ flex: '0 0 200px', fontSize: '0.875rem', fontWeight: 600, color: 'var(--gray-900)',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {p.name}
+                    </div>
+                    <div style={{ flex: 1, fontSize: '0.8125rem', color: 'var(--gray-500)' }}>
+                      {ap.milestone ?? ap.name}
+                    </div>
+                    <span style={{ padding: '2px 10px', borderRadius: 20, fontSize: '0.75rem', fontWeight: 700, color: statusColor, background: statusBg }}>
+                      {statusLabel}
+                    </span>
+                    {ap.passRate !== null && (
+                      <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: kpiColor(ap.passRate, [90, 70]) }}>
+                        {ap.passRate}% pass
+                      </span>
+                    )}
+                    {daysLeft !== null && (
+                      <span style={{ fontSize: '0.75rem', color: 'var(--gray-400)' }}>
+                        {isOverdue ? `${Math.abs(daysLeft)}d overdue` : daysLeft === 0 ? 'ends today' : `${daysLeft}d left`}
+                      </span>
+                    )}
+                    {p.openDefects > 0 && (
+                      <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#DC2626' }}>
+                        {p.openDefects} open defects
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {/* Recently completed */}
+        {recentlyCompleted.length > 0 && (
+          <>
+            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
+              Completed this period
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {recentlyCompleted.map(plan => {
+                const pct   = plan.passRate;
+                const color = pct === null ? 'var(--gray-400)' : kpiColor(pct, [90, 70]);
+                return (
+                  <div key={plan.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+                    padding: '8px 12px', borderRadius: 8, background: 'var(--gray-50)',
+                    cursor: 'pointer',
+                  }} onClick={() => navigate(`/projects/${plan.projectId}/plans`)}>
+                    <div style={{ flex: '0 0 200px', fontSize: '0.875rem', fontWeight: 600, color: 'var(--gray-900)',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {plan.projectName}
+                    </div>
+                    <div style={{ flex: 1, fontSize: '0.8125rem', color: 'var(--gray-500)' }}>
+                      {plan.milestone ?? plan.name}
+                    </div>
+                    {pct !== null ? (
+                      <span style={{ fontWeight: 700, fontSize: '0.875rem', color }}>{pct}% pass</span>
+                    ) : <span style={{ color: 'var(--gray-400)', fontSize: '0.875rem' }}>—</span>}
+                    <span style={{ fontSize: '0.75rem', color: 'var(--gray-400)' }}>
+                      {plan.failCount > 0 ? `${plan.failCount} failures · ` : ''}{plan.total} total
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
