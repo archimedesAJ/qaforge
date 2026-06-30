@@ -625,6 +625,66 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
     return { users };
   });
 
+  // GET /sysadmin/weekly-summary — per-project activity counts for a date window (sysadmin only)
+  app.get('/sysadmin/weekly-summary', async (req, reply) => {
+    const caller = req as unknown as { isSystemAdmin?: boolean };
+    if (!caller.isSystemAdmin) return reply.code(403).send({ error: 'System admin access required' });
+
+    const { since, until } = req.query as { since?: string; until?: string };
+
+    const sinceDate = since ? new Date(since) : (() => {
+      const d = new Date(); d.setDate(d.getDate() - 7); d.setHours(0, 0, 0, 0); return d;
+    })();
+    const untilDate = until ? new Date(until) : new Date();
+
+    const [projects, runsStarted, runsClosed, casesCreated, defectsFiled, defectsResolved, plansCreated] =
+      await Promise.all([
+        prisma.project.findMany({ select: { id: true, name: true, slug: true }, orderBy: { name: 'asc' } }),
+        prisma.testRun.groupBy({ by: ['projectId'], where: { startedAt: { gte: sinceDate, lte: untilDate } }, _count: { id: true } }),
+        prisma.testRun.groupBy({ by: ['projectId'], where: { endedAt: { gte: sinceDate, lte: untilDate }, status: 'closed' }, _count: { id: true } }),
+        prisma.testCase.groupBy({ by: ['projectId'], where: { createdAt: { gte: sinceDate, lte: untilDate }, archived: false }, _count: { id: true } }),
+        prisma.defect.groupBy({ by: ['projectId'], where: { createdAt: { gte: sinceDate, lte: untilDate } }, _count: { id: true } }),
+        prisma.defect.groupBy({ by: ['projectId'], where: { updatedAt: { gte: sinceDate, lte: untilDate }, status: { in: ['resolved', 'closed'] } }, _count: { id: true } }),
+        prisma.testPlan.groupBy({ by: ['projectId'], where: { createdAt: { gte: sinceDate, lte: untilDate } }, _count: { id: true } }),
+      ]);
+
+    const toMap = (arr: { projectId: string; _count: { id: number } }[]) =>
+      Object.fromEntries(arr.map(r => [r.projectId, r._count.id]));
+
+    const startedMap  = toMap(runsStarted);
+    const closedMap   = toMap(runsClosed);
+    const casesMap    = toMap(casesCreated);
+    const filedMap    = toMap(defectsFiled);
+    const resolvedMap = toMap(defectsResolved);
+    const plansMap    = toMap(plansCreated);
+
+    const allProjects = projects.map(p => ({
+      id:              p.id,
+      name:            p.name,
+      slug:            p.slug,
+      runsStarted:     startedMap[p.id]  ?? 0,
+      runsClosed:      closedMap[p.id]   ?? 0,
+      casesCreated:    casesMap[p.id]    ?? 0,
+      defectsFiled:    filedMap[p.id]    ?? 0,
+      defectsResolved: resolvedMap[p.id] ?? 0,
+      plansCreated:    plansMap[p.id]    ?? 0,
+    }));
+
+    const active   = allProjects.filter(p => p.runsStarted + p.runsClosed + p.casesCreated + p.defectsFiled + p.defectsResolved + p.plansCreated > 0);
+    const inactive = allProjects.filter(p => p.runsStarted + p.runsClosed + p.casesCreated + p.defectsFiled + p.defectsResolved + p.plansCreated === 0);
+
+    const totals = active.reduce((acc, p) => ({
+      runsStarted:     acc.runsStarted     + p.runsStarted,
+      runsClosed:      acc.runsClosed      + p.runsClosed,
+      casesCreated:    acc.casesCreated    + p.casesCreated,
+      defectsFiled:    acc.defectsFiled    + p.defectsFiled,
+      defectsResolved: acc.defectsResolved + p.defectsResolved,
+      plansCreated:    acc.plansCreated    + p.plansCreated,
+    }), { runsStarted: 0, runsClosed: 0, casesCreated: 0, defectsFiled: 0, defectsResolved: 0, plansCreated: 0 });
+
+    return { since: sinceDate, until: untilDate, active, inactive: inactive.map(p => p.name), totals };
+  });
+
   // GET /sysadmin/activity — paginated activity log (sysadmin only)
   app.get('/sysadmin/activity', async (req, reply) => {
     const caller = req as unknown as { isSystemAdmin?: boolean };

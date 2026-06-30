@@ -173,7 +173,7 @@ function getPeriodLabel(preset: DatePreset, customFrom: string, customUntil: str
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type ViewMode = 'overview' | 'stakeholder';
+type ViewMode = 'overview' | 'stakeholder' | 'weekly';
 
 export function AdminDashboardPage() {
   const navigate = useNavigate();
@@ -204,6 +204,18 @@ export function AdminDashboardPage() {
   const projects          = data?.projects ?? [];
   const recent            = data?.recentRuns ?? [];
   const recentlyCompleted = data?.recentlyCompleted ?? [];
+
+  const { data: weeklyData, isLoading: weeklyLoading } = useQuery({
+    queryKey: ['sysadmin-weekly-summary', datePreset, customFrom, customUntil],
+    enabled: viewMode === 'weekly' && customReady,
+    queryFn: () => {
+      const { since, until } = getDateRange(datePreset, customFrom, customUntil);
+      const params = new URLSearchParams();
+      if (since) params.set('since', since);
+      if (until) params.set('until', until);
+      return api.get<WeeklySummaryData>(`projects/sysadmin/weekly-summary?${params}`);
+    },
+  });
 
   function openReportModal() {
     if (!stats || projects.length === 0) return;
@@ -291,14 +303,18 @@ export function AdminDashboardPage() {
             <div style={{
               display: 'flex', gap: 0, border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden',
             }}>
-              {(['overview', 'stakeholder'] as ViewMode[]).map(mode => (
-                <button key={mode} onClick={() => setViewMode(mode)} style={{
+              {([
+                { key: 'overview',     label: 'Overview' },
+                { key: 'stakeholder',  label: '📊 Thursday Report' },
+                { key: 'weekly',       label: '📋 Weekly Summary' },
+              ] as { key: ViewMode; label: string }[]).map(({ key, label }) => (
+                <button key={key} onClick={() => setViewMode(key)} style={{
                   padding: '6px 14px', fontSize: '0.8125rem', fontWeight: 500, border: 'none', cursor: 'pointer',
-                  background: viewMode === mode ? 'var(--color-primary)' : 'var(--surface-base)',
-                  color: viewMode === mode ? '#fff' : 'var(--gray-600)',
+                  background: viewMode === key ? 'var(--color-primary)' : 'var(--surface-base)',
+                  color: viewMode === key ? '#fff' : 'var(--gray-600)',
                   transition: 'all 0.15s',
                 }}>
-                  {mode === 'overview' ? 'Overview' : '📊 Thursday Report'}
+                  {label}
                 </button>
               ))}
             </div>
@@ -810,6 +826,15 @@ export function AdminDashboardPage() {
             navigate={navigate}
           />
         )}
+
+        {/* ── Weekly Summary view ── */}
+        {viewMode === 'weekly' && (
+          <WeeklySummaryView
+            data={weeklyData}
+            isLoading={weeklyLoading}
+            period={getPeriodLabel(datePreset, customFrom, customUntil)}
+          />
+        )}
       </div>
 
       {/* ── Report summary modal ── */}
@@ -1158,6 +1183,210 @@ function StakeholderView({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Weekly Summary types & component ─────────────────────────────────────────
+
+interface WeeklyProject {
+  id: string;
+  name: string;
+  slug: string;
+  runsStarted: number;
+  runsClosed: number;
+  casesCreated: number;
+  defectsFiled: number;
+  defectsResolved: number;
+  plansCreated: number;
+}
+
+interface WeeklySummaryData {
+  since: string;
+  until: string;
+  active: WeeklyProject[];
+  inactive: string[];
+  totals: {
+    runsStarted: number;
+    runsClosed: number;
+    casesCreated: number;
+    defectsFiled: number;
+    defectsResolved: number;
+    plansCreated: number;
+  };
+}
+
+function buildCopyText(data: WeeklySummaryData, period: string): string {
+  const lines: string[] = [`QA Weekly Summary — ${period}`, ''];
+  for (const p of data.active) {
+    const parts: string[] = [];
+    const totalRuns = p.runsStarted + p.runsClosed;
+    if (totalRuns > 0) parts.push(`${totalRuns} run${totalRuns > 1 ? 's' : ''} executed`);
+    if (p.casesCreated > 0)    parts.push(`${p.casesCreated} case${p.casesCreated > 1 ? 's' : ''} created`);
+    if (p.defectsFiled > 0)    parts.push(`${p.defectsFiled} defect${p.defectsFiled > 1 ? 's' : ''} filed`);
+    if (p.defectsResolved > 0) parts.push(`${p.defectsResolved} defect${p.defectsResolved > 1 ? 's' : ''} resolved`);
+    if (p.plansCreated > 0)    parts.push(`${p.plansCreated} plan${p.plansCreated > 1 ? 's' : ''} created`);
+    lines.push(`● ${p.name} — ${parts.join(', ')}`);
+  }
+  if (data.inactive.length > 0) {
+    lines.push('');
+    lines.push(`No activity: ${data.inactive.join(', ')}`);
+  }
+  return lines.join('\n');
+}
+
+function Chip({ label, color, bg }: { label: string; color: string; bg: string }) {
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center',
+      padding: '2px 8px', borderRadius: 4,
+      fontSize: '0.75rem', fontWeight: 600,
+      color, background: bg, whiteSpace: 'nowrap',
+    }}>
+      {label}
+    </span>
+  );
+}
+
+function WeeklySummaryView({ data, isLoading, period }: {
+  data: WeeklySummaryData | undefined;
+  isLoading: boolean;
+  period: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  function copy() {
+    if (!data) return;
+    navigator.clipboard.writeText(buildCopyText(data, period)).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  if (isLoading) {
+    return <div style={{ padding: 40, textAlign: 'center' }}><Spinner size="lg" /></div>;
+  }
+
+  if (!data || data.active.length === 0) {
+    return (
+      <EmptyState
+        icon="📋"
+        title="No activity this period"
+        description="No test runs, cases, defects, or plans were recorded for the selected date range."
+      />
+    );
+  }
+
+  const { active, inactive, totals } = data;
+
+  return (
+    <div>
+      {/* Header row */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span style={{ fontWeight: 700, fontSize: '0.9375rem', color: 'var(--gray-900)' }}>
+            {active.length} of {active.length + inactive.length} projects active
+          </span>
+          {totals.runsStarted + totals.runsClosed > 0 && (
+            <Chip label={`${totals.runsStarted + totals.runsClosed} runs`} color="#6D28D9" bg="#EDE9FE" />
+          )}
+          {totals.casesCreated > 0 && (
+            <Chip label={`${totals.casesCreated} cases created`} color="#0369A1" bg="#E0F2FE" />
+          )}
+          {totals.defectsFiled > 0 && (
+            <Chip label={`${totals.defectsFiled} defects filed`} color="#DC2626" bg="#FEE2E2" />
+          )}
+          {totals.defectsResolved > 0 && (
+            <Chip label={`${totals.defectsResolved} resolved`} color="#16A34A" bg="#DCFCE7" />
+          )}
+        </div>
+        <Button variant="secondary" size="sm" onClick={copy}>
+          {copied ? '✓ Copied!' : '📋 Copy for slides'}
+        </Button>
+      </div>
+
+      {/* Per-project list */}
+      <div className="card" style={{ padding: 0, marginBottom: 16 }}>
+        {active.map((p, i) => {
+          const isLast = i === active.length - 1;
+          const totalRuns = p.runsStarted + p.runsClosed;
+          return (
+            <div key={p.id} style={{
+              padding: '14px 20px',
+              borderBottom: isLast ? 'none' : '1px solid var(--border-color)',
+              display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+            }}>
+              <div style={{ flex: 1, minWidth: 180 }}>
+                <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--gray-900)' }}>
+                  {p.name}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                {totalRuns > 0 && (
+                  <Chip
+                    label={`▶ ${totalRuns} run${totalRuns > 1 ? 's' : ''}`}
+                    color="#6D28D9" bg="#EDE9FE"
+                  />
+                )}
+                {p.runsClosed > 0 && (
+                  <Chip
+                    label={`✓ ${p.runsClosed} closed`}
+                    color="#16A34A" bg="#DCFCE7"
+                  />
+                )}
+                {p.casesCreated > 0 && (
+                  <Chip
+                    label={`📝 ${p.casesCreated} case${p.casesCreated > 1 ? 's' : ''}`}
+                    color="#0369A1" bg="#E0F2FE"
+                  />
+                )}
+                {p.defectsFiled > 0 && (
+                  <Chip
+                    label={`🐛 ${p.defectsFiled} defect${p.defectsFiled > 1 ? 's' : ''}`}
+                    color="#DC2626" bg="#FEE2E2"
+                  />
+                )}
+                {p.defectsResolved > 0 && (
+                  <Chip
+                    label={`✓ ${p.defectsResolved} resolved`}
+                    color="#16A34A" bg="#DCFCE7"
+                  />
+                )}
+                {p.plansCreated > 0 && (
+                  <Chip
+                    label={`📋 ${p.plansCreated} plan${p.plansCreated > 1 ? 's' : ''}`}
+                    color="#0369A1" bg="#E0F2FE"
+                  />
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Inactive projects */}
+      {inactive.length > 0 && (
+        <div style={{
+          padding: '10px 16px', background: 'var(--surface-raised)',
+          border: '1px solid var(--border-color)', borderRadius: 8,
+          fontSize: '0.8125rem', color: 'var(--gray-500)',
+        }}>
+          <span style={{ fontWeight: 600, color: 'var(--gray-700)' }}>No activity: </span>
+          {inactive.join(' · ')}
+        </div>
+      )}
+
+      {/* Copied preview */}
+      {copied && (
+        <div style={{
+          marginTop: 12, padding: '10px 14px',
+          background: '#F0FDF4', border: '1px solid #BBF7D0',
+          borderRadius: 8, fontSize: '0.8125rem', color: '#166534',
+          fontWeight: 500,
+        }}>
+          Copied to clipboard — paste into your "Other Tasks Completed" slide
+        </div>
+      )}
     </div>
   );
 }
