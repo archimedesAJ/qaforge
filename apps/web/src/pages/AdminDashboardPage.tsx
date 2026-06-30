@@ -19,6 +19,7 @@ interface OverviewStats {
   totalCases: number;
   openRuns: number;
   openDefects: number;
+  resolvedDefects: number;
   activeSprints: number;
   sprintsAtRisk: number;
 }
@@ -1254,6 +1255,7 @@ interface ExecSummaryCalc {
   avgPassRate: number | null;
   avgCoverage: number | null;
   openDefects: number;
+  resolvedDefects: number;
   staleCases: number;
   totalFailing: number;
   totalFlaky: number;
@@ -1304,8 +1306,12 @@ function buildExecNarrative(s: ExecSummaryCalc): { text: string; color: string }
     bullets.push({ text: `${s.projectsWithNoRuns} project${s.projectsWithNoRuns !== 1 ? 's have' : ' has'} no test runs recorded — these may be new or currently paused.`, color: '#6B7280' });
   }
 
-  if (s.openDefects > 0) {
+  if (s.openDefects > 0 && s.resolvedDefects > 0) {
+    bullets.push({ text: `${s.openDefects} open defect${s.openDefects !== 1 ? 's' : ''} under investigation; ${s.resolvedDefects} resolved this period.`, color: '#DC2626' });
+  } else if (s.openDefects > 0) {
     bullets.push({ text: `${s.openDefects} open defect${s.openDefects !== 1 ? 's' : ''} across the portfolio, currently under investigation.`, color: '#DC2626' });
+  } else if (s.resolvedDefects > 0) {
+    bullets.push({ text: `No open defects. ${s.resolvedDefects} defect${s.resolvedDefects !== 1 ? 's' : ''} resolved this period.`, color: '#16A34A' });
   } else {
     bullets.push({ text: `No open defects across the portfolio.`, color: '#16A34A' });
   }
@@ -1318,7 +1324,7 @@ function buildExecCopyText(s: ExecSummaryCalc, period: string): string {
     `QA Executive Summary — ${period}`,
     '',
     `Active projects: ${s.activeProjects}  ·  Total cases: ${s.totalCases.toLocaleString()}  ·  Avg pass rate: ${s.avgPassRate !== null ? `${s.avgPassRate}%` : '—'}  ·  Exec coverage: ${s.avgCoverage !== null ? `${s.avgCoverage}%` : '—'}`,
-    `Open defects: ${s.openDefects}  ·  Stale cases: ${s.staleCases}`,
+    `Open defects: ${s.openDefects}  ·  Resolved: ${s.resolvedDefects}  ·  Stale cases: ${s.staleCases}`,
     '',
     'Key observations:',
     ...buildExecNarrative(s).map(b => `● ${b.text}`),
@@ -1360,7 +1366,8 @@ function ExecSummaryView({ stats, projects, period }: {
     totalCases:    stats.totalCases,
     avgPassRate,
     avgCoverage,
-    openDefects:   stats.openDefects,
+    openDefects:     stats.openDefects,
+    resolvedDefects: stats.resolvedDefects,
     staleCases,
     totalFailing,
     totalFlaky,
@@ -1380,8 +1387,9 @@ function ExecSummaryView({ stats, projects, period }: {
     { label: 'TOTAL TEST CASES', value: stats.totalCases.toLocaleString(), color: 'var(--gray-900)' },
     { label: 'AVG. PASS RATE',  value: avgPassRate  !== null ? `${avgPassRate}%`  : '—', color: avgPassRate  !== null ? kpiColor(avgPassRate,  [90, 70]) : 'var(--gray-400)' },
     { label: 'EXEC. COVERAGE',  value: avgCoverage  !== null ? `${avgCoverage}%`  : '—', color: avgCoverage  !== null ? kpiColor(avgCoverage, [80, 60]) : 'var(--gray-400)' },
-    { label: 'OPEN DEFECTS',    value: String(stats.openDefects), color: stats.openDefects > 0 ? '#DC2626' : 'var(--color-success)' },
-    { label: 'STALE CASES',     value: String(staleCases),        color: staleCases         > 0 ? '#DC2626' : 'var(--color-success)' },
+    { label: 'OPEN DEFECTS',      value: String(stats.openDefects),     color: stats.openDefects     > 0 ? '#DC2626' : 'var(--color-success)' },
+    { label: 'DEFECTS RESOLVED', value: String(stats.resolvedDefects), color: stats.resolvedDefects > 0 ? '#16A34A' : 'var(--gray-400)'        },
+    { label: 'STALE CASES',      value: String(staleCases),            color: staleCases             > 0 ? '#DC2626' : 'var(--color-success)'  },
   ];
 
   const bullets = buildExecNarrative(summary);
@@ -1416,7 +1424,7 @@ function ExecSummaryView({ stats, projects, period }: {
       </div>
 
       {/* Stat cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 12, marginBottom: 20 }}>
         {statCards.map(card => (
           <div key={card.label} style={{
             background: 'var(--surface-base)', border: '1px solid var(--border-color)',

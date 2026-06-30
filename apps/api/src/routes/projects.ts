@@ -302,6 +302,7 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
     const [
       totalUsers, activatedUsers, projects, recentRuns,
       openDefectsGroups, openRunsCount, flakyGroups, activePlans, caseTypeGroups, recentlyClosedPlans,
+      resolvedDefectsCount,
     ] = await Promise.all([
       prisma.user.count(),
       prisma.user.count({ where: { activated: true } }),
@@ -374,6 +375,13 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
           runs: { select: { results: { select: { status: true } } } },
         },
         orderBy: { updatedAt: 'desc' },
+      }),
+      // Defects resolved/closed within the selected period (or all-time if no range)
+      prisma.defect.count({
+        where: {
+          status: { in: ['resolved', 'closed'] },
+          ...(isDateBounded && { updatedAt: { gte: sinceDate!, lte: untilDate! } }),
+        },
       }),
     ]);
 
@@ -561,7 +569,8 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         activatedUsers,
         totalCases,
         openRuns: openRunsCount,
-        openDefects: totalOpenDefects,
+        openDefects:     totalOpenDefects,
+        resolvedDefects: resolvedDefectsCount,
         activeSprints,
         sprintsAtRisk,
       },
