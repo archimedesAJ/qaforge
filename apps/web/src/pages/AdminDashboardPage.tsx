@@ -173,7 +173,7 @@ function getPeriodLabel(preset: DatePreset, customFrom: string, customUntil: str
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type ViewMode = 'overview' | 'stakeholder' | 'weekly';
+type ViewMode = 'overview' | 'stakeholder' | 'weekly' | 'exec';
 
 export function AdminDashboardPage() {
   const navigate = useNavigate();
@@ -307,6 +307,7 @@ export function AdminDashboardPage() {
                 { key: 'overview',     label: 'Overview' },
                 { key: 'stakeholder',  label: '📊 Thursday Report' },
                 { key: 'weekly',       label: '📋 Weekly Summary' },
+                { key: 'exec',         label: '🎯 Exec Summary' },
               ] as { key: ViewMode; label: string }[]).map(({ key, label }) => (
                 <button key={key} onClick={() => setViewMode(key)} style={{
                   padding: '6px 14px', fontSize: '0.8125rem', fontWeight: 500, border: 'none', cursor: 'pointer',
@@ -835,6 +836,15 @@ export function AdminDashboardPage() {
             period={getPeriodLabel(datePreset, customFrom, customUntil)}
           />
         )}
+
+        {/* ── Exec Summary view ── */}
+        {!isLoading && stats && viewMode === 'exec' && (
+          <ExecSummaryView
+            stats={stats}
+            projects={projects}
+            period={getPeriodLabel(datePreset, customFrom, customUntil)}
+          />
+        )}
       </div>
 
       {/* ── Report summary modal ── */}
@@ -1233,6 +1243,232 @@ function buildCopyText(data: WeeklySummaryData, period: string): string {
     lines.push(`No activity: ${data.inactive.join(', ')}`);
   }
   return lines.join('\n');
+}
+
+// ── Exec Summary types & component ───────────────────────────────────────────
+
+interface ExecSummaryCalc {
+  activeProjects: number;
+  totalProjects: number;
+  totalCases: number;
+  avgPassRate: number | null;
+  avgCoverage: number | null;
+  openDefects: number;
+  staleCases: number;
+  totalFailing: number;
+  totalFlaky: number;
+  projectsWithNoRuns: number;
+  portfolioHealth: 'GREEN' | 'AMBER' | 'RED';
+  topStaleProject: { name: string; staleCount: number; totalCount: number } | null;
+}
+
+function buildExecNarrative(s: ExecSummaryCalc): { text: string; color: string }[] {
+  const bullets: { text: string; color: string }[] = [];
+  const rag = s.portfolioHealth;
+  const ragColor = rag === 'GREEN' ? '#16A34A' : rag === 'AMBER' ? '#D97706' : '#DC2626';
+
+  if (s.avgPassRate !== null && s.avgCoverage !== null) {
+    if (rag === 'GREEN') {
+      bullets.push({ text: `Portfolio health is ${rag} — pass rate is ${s.avgPassRate}% and execution coverage is ${s.avgCoverage}%, both meeting targets.`, color: ragColor });
+    } else if (rag === 'AMBER') {
+      if (s.avgCoverage < 80) {
+        const passDesc = s.avgPassRate !== null ? `exceptional at ${s.avgPassRate}%` : 'not yet measured';
+        const critWord = s.avgCoverage < 50 ? ' critically' : '';
+        bullets.push({ text: `Portfolio health is ${rag} — pass rate is ${passDesc} across active projects, but execution coverage remains${critWord} low at ${s.avgCoverage}%, well below target.`, color: ragColor });
+      } else {
+        bullets.push({ text: `Portfolio health is ${rag} — execution coverage is ${s.avgCoverage}% but pass rate of ${s.avgPassRate}% is below the 90% target.`, color: ragColor });
+      }
+    } else {
+      bullets.push({ text: `Portfolio health is ${rag} — pass rate is ${s.avgPassRate}% and execution coverage is ${s.avgCoverage}%, both below acceptable thresholds.`, color: ragColor });
+    }
+  } else {
+    bullets.push({ text: `Portfolio health data is incomplete — not enough runs recorded to calculate full KPIs.`, color: '#D97706' });
+  }
+
+  if (s.staleCases > 0 && s.topStaleProject) {
+    const { name, staleCount, totalCount } = s.topStaleProject;
+    bullets.push({ text: `Biggest risk: ${s.staleCases} stale test ${s.staleCases === 1 ? 'case' : 'cases'} across the portfolio — ${name} alone accounts for ${staleCount} stale ${staleCount === 1 ? 'case' : 'cases'} out of its ${totalCount} total.`, color: '#DC2626' });
+  } else if (s.staleCases === 0) {
+    bullets.push({ text: `No stale test cases — all executed cases have been run recently.`, color: '#16A34A' });
+  }
+
+  if (s.totalFailing === 0 && s.totalFlaky === 0 && s.activeProjects > 0) {
+    bullets.push({ text: `Win: Zero failing tests, zero flaky tests across all ${s.activeProjects} project${s.activeProjects !== 1 ? 's' : ''} this reporting period.`, color: '#16A34A' });
+  } else if (s.totalFailing === 0) {
+    bullets.push({ text: `Win: Zero failing tests across all ${s.activeProjects} project${s.activeProjects !== 1 ? 's' : ''} this reporting period.`, color: '#16A34A' });
+  } else {
+    bullets.push({ text: `${s.totalFailing} failing test${s.totalFailing !== 1 ? 's' : ''} across the portfolio require attention.`, color: '#DC2626' });
+  }
+
+  if (s.projectsWithNoRuns > 0) {
+    bullets.push({ text: `${s.projectsWithNoRuns} project${s.projectsWithNoRuns !== 1 ? 's have' : ' has'} no test runs recorded — these may be new or currently paused.`, color: '#6B7280' });
+  }
+
+  if (s.openDefects > 0) {
+    bullets.push({ text: `${s.openDefects} open defect${s.openDefects !== 1 ? 's' : ''} across the portfolio, currently under investigation.`, color: '#DC2626' });
+  } else {
+    bullets.push({ text: `No open defects across the portfolio.`, color: '#16A34A' });
+  }
+
+  return bullets;
+}
+
+function buildExecCopyText(s: ExecSummaryCalc, period: string): string {
+  const lines = [
+    `QA Executive Summary — ${period}`,
+    '',
+    `Active projects: ${s.activeProjects}  ·  Total cases: ${s.totalCases.toLocaleString()}  ·  Avg pass rate: ${s.avgPassRate !== null ? `${s.avgPassRate}%` : '—'}  ·  Exec coverage: ${s.avgCoverage !== null ? `${s.avgCoverage}%` : '—'}`,
+    `Open defects: ${s.openDefects}  ·  Stale cases: ${s.staleCases}`,
+    '',
+    'Key observations:',
+    ...buildExecNarrative(s).map(b => `● ${b.text}`),
+  ];
+  return lines.join('\n');
+}
+
+function ExecSummaryView({ stats, projects, period }: {
+  stats: OverviewStats;
+  projects: ProjectHealth[];
+  period: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const withPassRate = projects.filter(p => p.passRate    !== null);
+  const withCoverage = projects.filter(p => p.coveragePct !== null);
+  const avgPassRate  = withPassRate.length > 0 ? Math.round(withPassRate.reduce((s, p) => s + p.passRate!, 0)    / withPassRate.length) : null;
+  const avgCoverage  = withCoverage.length > 0 ? Math.round(withCoverage.reduce((s, p) => s + p.coveragePct!, 0) / withCoverage.length) : null;
+  const staleCases     = projects.reduce((s, p) => s + p.coverageStats.stale,   0);
+  const totalFailing   = projects.reduce((s, p) => s + p.coverageStats.failing, 0);
+  const totalFlaky     = projects.reduce((s, p) => s + p.flakyCount,            0);
+  const activeProjects = projects.filter(p => p.latestRun !== null).length;
+
+  const portfolioHealth: 'GREEN' | 'AMBER' | 'RED' = (() => {
+    if (avgPassRate === null || avgCoverage === null) return 'AMBER';
+    if (avgPassRate >= 90 && avgCoverage >= 80) return 'GREEN';
+    if (avgPassRate < 70  || avgCoverage < 50)  return 'RED';
+    return 'AMBER';
+  })();
+
+  const topStaleProject = projects
+    .map(p => ({ name: p.name, staleCount: p.coverageStats.stale, totalCount: p.counts.cases }))
+    .sort((a, b) => b.staleCount - a.staleCount)
+    .find(p => p.staleCount > 0) ?? null;
+
+  const summary: ExecSummaryCalc = {
+    activeProjects,
+    totalProjects: stats.totalProjects,
+    totalCases:    stats.totalCases,
+    avgPassRate,
+    avgCoverage,
+    openDefects:   stats.openDefects,
+    staleCases,
+    totalFailing,
+    totalFlaky,
+    projectsWithNoRuns: projects.filter(p => p.latestRun === null).length,
+    portfolioHealth,
+    topStaleProject,
+  };
+
+  const healthStyle = {
+    GREEN: { bg: '#DCFCE7', color: '#166534', border: '#BBF7D0' },
+    AMBER: { bg: '#FEF3C7', color: '#92400E', border: '#FDE68A' },
+    RED:   { bg: '#FEE2E2', color: '#991B1B', border: '#FECACA' },
+  }[portfolioHealth];
+
+  const statCards = [
+    { label: 'ACTIVE PROJECTS', value: String(activeProjects),            color: 'var(--gray-900)' },
+    { label: 'TOTAL TEST CASES', value: stats.totalCases.toLocaleString(), color: 'var(--gray-900)' },
+    { label: 'AVG. PASS RATE',  value: avgPassRate  !== null ? `${avgPassRate}%`  : '—', color: avgPassRate  !== null ? kpiColor(avgPassRate,  [90, 70]) : 'var(--gray-400)' },
+    { label: 'EXEC. COVERAGE',  value: avgCoverage  !== null ? `${avgCoverage}%`  : '—', color: avgCoverage  !== null ? kpiColor(avgCoverage, [80, 60]) : 'var(--gray-400)' },
+    { label: 'OPEN DEFECTS',    value: String(stats.openDefects), color: stats.openDefects > 0 ? '#DC2626' : 'var(--color-success)' },
+    { label: 'STALE CASES',     value: String(staleCases),        color: staleCases         > 0 ? '#DC2626' : 'var(--color-success)' },
+  ];
+
+  const bullets = buildExecNarrative(summary);
+
+  function copy() {
+    navigator.clipboard.writeText(buildExecCopyText(summary, period)).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ fontWeight: 700, fontSize: '1.0625rem', color: 'var(--gray-900)' }}>
+            Executive Summary
+          </div>
+          <span style={{
+            padding: '3px 12px', borderRadius: 20, fontSize: '0.8125rem', fontWeight: 700,
+            letterSpacing: '0.06em',
+            color: healthStyle.color, background: healthStyle.bg, border: `1px solid ${healthStyle.border}`,
+          }}>
+            {portfolioHealth}
+          </span>
+          <span style={{ fontSize: '0.8125rem', color: 'var(--gray-400)' }}>{period}</span>
+        </div>
+        <Button variant="secondary" size="sm" onClick={copy}>
+          {copied ? '✓ Copied!' : '📋 Copy for slides'}
+        </Button>
+      </div>
+
+      {/* Stat cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 20 }}>
+        {statCards.map(card => (
+          <div key={card.label} style={{
+            background: 'var(--surface-base)', border: '1px solid var(--border-color)',
+            borderRadius: 10, padding: '16px 12px', textAlign: 'center',
+          }}>
+            <div style={{
+              fontSize: '0.625rem', fontWeight: 700, color: 'var(--gray-400)',
+              textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8,
+            }}>
+              {card.label}
+            </div>
+            <div style={{ fontSize: '1.875rem', fontWeight: 700, color: card.color, lineHeight: 1 }}>
+              {card.value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Narrative bullets */}
+      <div style={{
+        background: 'var(--surface-base)', border: '1px solid var(--border-color)',
+        borderRadius: 10, padding: '20px 24px', marginBottom: 16,
+      }}>
+        <div style={{
+          fontSize: '0.75rem', fontWeight: 700, color: 'var(--gray-400)',
+          textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 14,
+        }}>
+          Key observations
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {bullets.map((b, i) => (
+            <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              <span style={{ color: b.color, flexShrink: 0, fontSize: '0.75rem', marginTop: 3 }}>●</span>
+              <span style={{ fontSize: '0.875rem', color: 'var(--gray-700)', lineHeight: 1.6 }}>
+                {b.text}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {copied && (
+        <div style={{
+          padding: '10px 14px',
+          background: '#F0FDF4', border: '1px solid #BBF7D0',
+          borderRadius: 8, fontSize: '0.8125rem', color: '#166534', fontWeight: 500,
+        }}>
+          Copied to clipboard — paste into your Executive Summary slide
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Chip({ label, color, bg }: { label: string; color: string; bg: string }) {
