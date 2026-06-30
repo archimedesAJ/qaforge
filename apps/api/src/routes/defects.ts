@@ -4,8 +4,9 @@ import { prisma } from '../lib/prisma.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { logActivity } from '../lib/activityLog.js';
 
-const VALID_TRACKERS = ['jira', 'github', 'linear', 'internal'] as const;
-const VALID_STATUSES = ['open', 'in_progress', 'resolved', 'closed', 'wont_fix'] as const;
+const VALID_TRACKERS  = ['jira', 'github', 'linear', 'internal'] as const;
+const VALID_STATUSES  = ['open', 'in_progress', 'resolved', 'closed', 'wont_fix'] as const;
+const VALID_SEVERITIES = ['critical', 'high', 'medium', 'low'] as const;
 
 const AttachmentSchema = z.object({
   name: z.string(),
@@ -16,6 +17,7 @@ const AttachmentSchema = z.object({
 const CreateDefectSchema = z.object({
   title:       z.string().min(1),
   tracker:     z.enum(VALID_TRACKERS),
+  severity:    z.enum(VALID_SEVERITIES).default('medium'),
   externalRef: z.string().max(2048).nullish(),
   notes:       z.string().optional(),
   attachments: z.array(AttachmentSchema).optional(),
@@ -24,6 +26,7 @@ const CreateDefectSchema = z.object({
 const UpdateDefectSchema = z.object({
   title:       z.string().min(1).optional(),
   tracker:     z.enum(VALID_TRACKERS).optional(),
+  severity:    z.enum(VALID_SEVERITIES).optional(),
   externalRef: z.string().max(2048).nullish(),
   status:      z.enum(VALID_STATUSES).optional(),
   notes:       z.string().optional(),
@@ -74,6 +77,7 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
         projectId,
         title:       body.title.trim(),
         tracker:     body.tracker,
+        severity:    body.severity,
         externalRef: body.externalRef?.trim() || null,
         notes:       body.notes?.trim() || null,
         attachments: body.attachments ?? [],
@@ -111,6 +115,7 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
         runResultId: result.id,
         title:       body.title.trim(),
         tracker:     body.tracker,
+        severity:    body.severity,
         externalRef: body.externalRef?.trim() || null,
         notes:       body.notes?.trim() || null,
         attachments: body.attachments ?? [],
@@ -139,9 +144,10 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
       where: { id: defectId },
       data: {
         ...(body.title       !== undefined && { title: body.title.trim() }),
-        ...(body.tracker     !== undefined && { tracker: body.tracker }),
+        ...(body.tracker     !== undefined && { tracker:  body.tracker }),
+        ...(body.severity    !== undefined && { severity: body.severity }),
         ...(body.externalRef !== undefined && { externalRef: body.externalRef?.trim() || null }),
-        ...(body.status      !== undefined && { status: body.status }),
+        ...(body.status      !== undefined && { status:   body.status }),
         ...(body.notes       !== undefined && { notes: body.notes.trim() || null }),
         ...(body.attachments !== undefined && { attachments: body.attachments }),
       },

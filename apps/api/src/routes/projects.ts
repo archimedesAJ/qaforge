@@ -694,6 +694,86 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
     return { since: sinceDate, until: untilDate, active, inactive: inactive.map(p => p.name), totals };
   });
 
+  // GET /sysadmin/kpi-performance — 7 KPIs for current period + 3 prior same-length periods
+  app.get('/sysadmin/kpi-performance', async (req, reply) => {
+    const caller = req as unknown as { isSystemAdmin?: boolean };
+    if (!caller.isSystemAdmin) return reply.code(403).send({ error: 'System admin access required' });
+
+    const { since, until } = req.query as { since?: string; until?: string };
+    const sinceDate = since ? new Date(since) : (() => {
+      const d = new Date(); d.setDate(d.getDate() - 7); d.setHours(0, 0, 0, 0); return d;
+    })();
+    const untilDate = until ? new Date(until) : new Date();
+    const periodMs  = untilDate.getTime() - sinceDate.getTime();
+
+    // Build 4 periods: W-3, W-2, W-1, current
+    const periods = [
+      { label: 'w3',      gte: new Date(sinceDate.getTime() - 3 * periodMs), lte: new Date(sinceDate.getTime() - 2 * periodMs) },
+      { label: 'w2',      gte: new Date(sinceDate.getTime() - 2 * periodMs), lte: new Date(sinceDate.getTime() - 1 * periodMs) },
+      { label: 'w1',      gte: new Date(sinceDate.getTime() - 1 * periodMs), lte: sinceDate },
+      { label: 'current', gte: sinceDate, lte: untilDate },
+    ];
+
+    // Total active cases — constant across periods
+    const [totalCases, staleCases, totalProjects] = await Promise.all([
+      prisma.testCase.count({ where: { archived: false } }),
+      prisma.coverageSnapshot.count({ where: { state: 'stale' } }),
+      prisma.project.count(),
+    ]);
+
+    async function computePeriod(gte: Date, lte: Date) {
+      const [
+        executedGroups,
+        defectsFromRuns,
+        totalDefectsFiled,
+        criticalEscaping,
+        resolvedDefects,
+        runResultGroups,
+        activeProjectGroups,
+      ] = await Promise.all([
+        prisma.runResult.groupBy({ by: ['testCaseId'], where: { executedAt: { gte, lte } } }),
+        prisma.defect.count({ where: { createdAt: { gte, lte }, runResultId: { not: null } } }),
+        prisma.defect.count({ where: { createdAt: { gte, lte } } }),
+        prisma.defect.count({ where: { createdAt: { gte, lte }, severity: 'critical', runResultId: null } }),
+        prisma.defect.findMany({
+          where: { updatedAt: { gte, lte }, status: { in: ['resolved', 'closed'] } },
+          select: { createdAt: true, updatedAt: true },
+        }),
+        prisma.runResult.groupBy({
+          by: ['status'],
+          where: { executedAt: { gte, lte }, status: { in: ['pass', 'fail'] } },
+          _count: { id: true },
+        }),
+        prisma.testRun.groupBy({ by: ['projectId'], where: { startedAt: { gte, lte } } }),
+      ]);
+
+      const execRate = totalCases > 0 ? Math.round((executedGroups.length / totalCases) * 100) : null;
+      const defectDetectionRate = totalDefectsFiled > 0
+        ? Math.round((defectsFromRuns / totalDefectsFiled) * 100) : null;
+      const avgResolutionHours = resolvedDefects.length > 0
+        ? Math.round(resolvedDefects.reduce((s, d) =>
+            s + (d.updatedAt.getTime() - d.createdAt.getTime()), 0
+          ) / resolvedDefects.length / 3_600_000 * 10) / 10
+        : null;
+      const passCount = runResultGroups.find(g => g.status === 'pass')?._count.id ?? 0;
+      const failCount = runResultGroups.find(g => g.status === 'fail')?._count.id ?? 0;
+      const regressionPassRate = (passCount + failCount) > 0
+        ? Math.round(passCount / (passCount + failCount) * 100) : null;
+
+      return { execRate, defectDetectionRate, criticalEscaping, avgResolutionHours, regressionPassRate, activeProjects: activeProjectGroups.length };
+    }
+
+    const [w3, w2, w1, current] = await Promise.all(periods.map(p => computePeriod(p.gte, p.lte)));
+
+    return {
+      totalProjects,
+      staleCases,
+      since: sinceDate,
+      until: untilDate,
+      w3, w2, w1, current,
+    };
+  });
+
   // GET /sysadmin/activity — paginated activity log (sysadmin only)
   app.get('/sysadmin/activity', async (req, reply) => {
     const caller = req as unknown as { isSystemAdmin?: boolean };

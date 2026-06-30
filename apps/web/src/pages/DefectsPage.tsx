@@ -15,6 +15,7 @@ interface Defect {
   tracker: string;
   externalRef: string | null;
   status: string;
+  severity: string;
   notes: string | null;
   attachments: AttachmentItem[] | null;
   createdAt: string;
@@ -45,8 +46,16 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }
   wont_fix:    { label: "Won't fix",   color: '#9CA3AF', bg: '#F9FAFB' },
 };
 
-const TRACKER_OPTIONS = Object.entries(TRACKER_CONFIG).map(([v, c]) => ({ value: v, label: c.label }));
-const STATUS_OPTIONS  = Object.entries(STATUS_CONFIG).map(([v, c])  => ({ value: v, label: c.label }));
+const SEVERITY_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
+  critical: { label: 'Critical', color: '#991B1B', bg: '#FEE2E2' },
+  high:     { label: 'High',     color: '#C2410C', bg: '#FFEDD5' },
+  medium:   { label: 'Medium',   color: '#D97706', bg: '#FEF3C7' },
+  low:      { label: 'Low',      color: '#166534', bg: '#DCFCE7' },
+};
+
+const TRACKER_OPTIONS  = Object.entries(TRACKER_CONFIG).map(([v, c])  => ({ value: v, label: c.label }));
+const STATUS_OPTIONS   = Object.entries(STATUS_CONFIG).map(([v, c])   => ({ value: v, label: c.label }));
+const SEVERITY_OPTIONS = Object.entries(SEVERITY_CONFIG).map(([v, c]) => ({ value: v, label: c.label }));
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
@@ -156,8 +165,9 @@ export function DefectsPage() {
           )}
 
           {defects.length > 0 && defects.map((defect, i) => {
-            const tc   = TRACKER_CONFIG[defect.tracker] ?? TRACKER_CONFIG.internal;
-            const sc   = STATUS_CONFIG[defect.status]   ?? STATUS_CONFIG.open;
+            const tc   = TRACKER_CONFIG[defect.tracker]    ?? TRACKER_CONFIG.internal;
+            const sc   = STATUS_CONFIG[defect.status]     ?? STATUS_CONFIG.open;
+            const sevc = SEVERITY_CONFIG[defect.severity] ?? SEVERITY_CONFIG.medium;
             const last = i === defects.length - 1;
 
             return (
@@ -167,6 +177,14 @@ export function DefectsPage() {
               }}>
                 {/* Top row */}
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
+                  {/* Severity badge */}
+                  <span style={{
+                    padding: '2px 8px', borderRadius: 4, fontSize: '0.75rem', fontWeight: 700,
+                    color: sevc.color, background: sevc.bg, flexShrink: 0, letterSpacing: '0.02em',
+                  }}>
+                    {sevc.label}
+                  </span>
+
                   {/* Tracker badge */}
                   <span style={{
                     padding: '2px 8px', borderRadius: 4, fontSize: '0.75rem', fontWeight: 600,
@@ -352,6 +370,7 @@ function EditDefectModal({
 }) {
   const [title, setTitle]             = useState(defect.title ?? '');
   const [tracker, setTracker]         = useState(defect.tracker);
+  const [severity, setSeverity]       = useState(defect.severity ?? 'medium');
   const [ref, setRef]                 = useState(defect.externalRef ?? '');
   const [notes, setNotes]             = useState(defect.notes ?? '');
   const [attachments, setAttachments] = useState<AttachmentItem[]>(defect.attachments ?? []);
@@ -361,6 +380,7 @@ function EditDefectModal({
     mutationFn: () => api.patch(`projects/${projectId}/defects/${defect.id}`, {
       title: title.trim(),
       tracker,
+      severity,
       externalRef: ref.trim() || null,
       notes: notes.trim() || null,
       attachments,
@@ -400,15 +420,19 @@ function EditDefectModal({
           autoFocus
           required
         />
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: 6, color: 'var(--gray-700)' }}>
-            Tracker
-          </label>
-          <Select
-            value={tracker}
-            onChange={e => setTracker(e.target.value)}
-            options={TRACKER_OPTIONS}
-          />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: 6, color: 'var(--gray-700)' }}>
+              Tracker
+            </label>
+            <Select value={tracker} onChange={e => setTracker(e.target.value)} options={TRACKER_OPTIONS} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: 6, color: 'var(--gray-700)' }}>
+              Severity
+            </label>
+            <Select value={severity} onChange={e => setSeverity(e.target.value)} options={SEVERITY_OPTIONS} />
+          </div>
         </div>
         <Input
           label="External ref / URL (optional)"
@@ -451,6 +475,7 @@ function CreateDefectModal({
 }) {
   const [title, setTitle]             = useState('');
   const [tracker, setTracker]         = useState('internal');
+  const [severity, setSeverity]       = useState('medium');
   const [ref, setRef]                 = useState('');
   const [notes, setNotes]             = useState('');
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
@@ -458,7 +483,7 @@ function CreateDefectModal({
 
   const mutation = useMutation({
     mutationFn: () => api.post(`projects/${projectId}/defects`, {
-      title, tracker,
+      title, tracker, severity,
       externalRef: ref.trim() || undefined,
       notes: notes.trim() || undefined,
       attachments,
@@ -498,15 +523,19 @@ function CreateDefectModal({
           autoFocus
           required
         />
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: 6, color: 'var(--gray-700)' }}>
-            Tracker
-          </label>
-          <Select
-            value={tracker}
-            onChange={e => setTracker(e.target.value)}
-            options={TRACKER_OPTIONS}
-          />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: 6, color: 'var(--gray-700)' }}>
+              Tracker
+            </label>
+            <Select value={tracker} onChange={e => setTracker(e.target.value)} options={TRACKER_OPTIONS} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: 6, color: 'var(--gray-700)' }}>
+              Severity
+            </label>
+            <Select value={severity} onChange={e => setSeverity(e.target.value)} options={SEVERITY_OPTIONS} />
+          </div>
         </div>
         <Input
           label="External ref URL (optional)"

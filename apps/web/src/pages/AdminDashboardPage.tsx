@@ -174,7 +174,7 @@ function getPeriodLabel(preset: DatePreset, customFrom: string, customUntil: str
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type ViewMode = 'overview' | 'stakeholder' | 'weekly' | 'exec';
+type ViewMode = 'overview' | 'stakeholder' | 'weekly' | 'exec' | 'kpi';
 
 export function AdminDashboardPage() {
   const navigate = useNavigate();
@@ -205,6 +205,18 @@ export function AdminDashboardPage() {
   const projects          = data?.projects ?? [];
   const recent            = data?.recentRuns ?? [];
   const recentlyCompleted = data?.recentlyCompleted ?? [];
+
+  const { data: kpiData, isLoading: kpiLoading } = useQuery({
+    queryKey: ['sysadmin-kpi', datePreset, customFrom, customUntil],
+    enabled: viewMode === 'kpi' && customReady,
+    queryFn: () => {
+      const { since, until } = getDateRange(datePreset, customFrom, customUntil);
+      const params = new URLSearchParams();
+      if (since) params.set('since', since);
+      if (until) params.set('until', until);
+      return api.get<KpiData>(`projects/sysadmin/kpi-performance?${params}`);
+    },
+  });
 
   const { data: weeklyData, isLoading: weeklyLoading } = useQuery({
     queryKey: ['sysadmin-weekly-summary', datePreset, customFrom, customUntil],
@@ -309,6 +321,7 @@ export function AdminDashboardPage() {
                 { key: 'stakeholder',  label: '📊 Thursday Report' },
                 { key: 'weekly',       label: '📋 Weekly Summary' },
                 { key: 'exec',         label: '🎯 Exec Summary' },
+                { key: 'kpi',          label: '📈 KPI Performance' },
               ] as { key: ViewMode; label: string }[]).map(({ key, label }) => (
                 <button key={key} onClick={() => setViewMode(key)} style={{
                   padding: '6px 14px', fontSize: '0.8125rem', fontWeight: 500, border: 'none', cursor: 'pointer',
@@ -838,6 +851,15 @@ export function AdminDashboardPage() {
           />
         )}
 
+        {/* ── KPI Performance view ── */}
+        {viewMode === 'kpi' && (
+          <KpiPerformanceView
+            data={kpiData}
+            isLoading={kpiLoading}
+            period={getPeriodLabel(datePreset, customFrom, customUntil)}
+          />
+        )}
+
         {/* ── Exec Summary view ── */}
         {!isLoading && stats && viewMode === 'exec' && (
           <ExecSummaryView
@@ -1244,6 +1266,276 @@ function buildCopyText(data: WeeklySummaryData, period: string): string {
     lines.push(`No activity: ${data.inactive.join(', ')}`);
   }
   return lines.join('\n');
+}
+
+// ── KPI Performance types & component ────────────────────────────────────────
+
+interface KpiPeriod {
+  execRate: number | null;
+  defectDetectionRate: number | null;
+  criticalEscaping: number;
+  avgResolutionHours: number | null;
+  regressionPassRate: number | null;
+  activeProjects: number;
+}
+
+interface KpiData {
+  totalProjects: number;
+  staleCases: number;
+  since: string;
+  until: string;
+  w3: KpiPeriod;
+  w2: KpiPeriod;
+  w1: KpiPeriod;
+  current: KpiPeriod;
+}
+
+type Rag = 'GREEN' | 'AMBER' | 'RED' | null;
+
+function rag(value: number | null, thresholds: { green: number; amber: number; lowerIsBetter?: boolean }): Rag {
+  if (value === null) return null;
+  const { green, amber, lowerIsBetter } = thresholds;
+  if (lowerIsBetter) {
+    if (value <= green)  return 'GREEN';
+    if (value <= amber)  return 'AMBER';
+    return 'RED';
+  }
+  if (value >= green) return 'GREEN';
+  if (value >= amber) return 'AMBER';
+  return 'RED';
+}
+
+const RAG_STYLE: Record<string, { color: string; bg: string }> = {
+  GREEN: { color: '#166534', bg: '#DCFCE7' },
+  AMBER: { color: '#92400E', bg: '#FEF3C7' },
+  RED:   { color: '#991B1B', bg: '#FEE2E2' },
+};
+
+function RagBadge({ value }: { value: Rag }) {
+  if (!value) return <span style={{ color: 'var(--gray-300)', fontSize: '0.8125rem' }}>—</span>;
+  const s = RAG_STYLE[value];
+  return (
+    <span style={{
+      padding: '2px 10px', borderRadius: 4, fontSize: '0.75rem', fontWeight: 700,
+      letterSpacing: '0.05em', color: s.color, background: s.bg,
+    }}>
+      {value}
+    </span>
+  );
+}
+
+function TrendCell({ value, label, ragVal }: { value: number | null; label: string; ragVal: Rag }) {
+  if (value === null) return <td style={{ textAlign: 'center', color: 'var(--gray-300)', fontSize: '0.8125rem' }}>—</td>;
+  const s = ragVal ? RAG_STYLE[ragVal] : { color: 'var(--gray-600)', bg: 'transparent' };
+  return (
+    <td style={{ textAlign: 'center' }}>
+      <span style={{
+        display: 'inline-block', padding: '2px 8px', borderRadius: 4,
+        fontSize: '0.8125rem', fontWeight: 600,
+        color: s.color, background: s.bg,
+      }}>
+        {label}
+      </span>
+    </td>
+  );
+}
+
+interface KpiRowDef {
+  key: string;
+  label: string;
+  target: string;
+  getValue: (p: KpiPeriod, d: KpiData) => number | null;
+  format: (v: number) => string;
+  getRag: (v: number | null) => Rag;
+  variance: (actual: number | null, targetNum: number | null) => string | null;
+}
+
+function buildKpiRows(d: KpiData): KpiRowDef[] {
+  return [
+    {
+      key: 'execRate',
+      label: 'Test execution rate — planned vs completed (%)',
+      target: '100%',
+      getValue: (p) => p.execRate,
+      format: (v) => `${v}%`,
+      getRag: (v) => rag(v, { green: 80, amber: 60 }),
+      variance: (v) => v !== null ? `${v >= 100 ? '+' : ''}${v - 100}%` : null,
+    },
+    {
+      key: 'defectDetectionRate',
+      label: 'Defect detection rate (%)',
+      target: '≥ 98%',
+      getValue: (p) => p.defectDetectionRate,
+      format: (v) => `${v}%`,
+      getRag: (v) => rag(v, { green: 98, amber: 90 }),
+      variance: (v) => v !== null ? `${v >= 98 ? '+' : ''}${v - 98}%` : null,
+    },
+    {
+      key: 'criticalEscaping',
+      label: 'Critical defects escaping to production (#)',
+      target: '0',
+      getValue: (p) => p.criticalEscaping,
+      format: (v) => String(v),
+      getRag: (v) => v === null ? null : v === 0 ? 'GREEN' : 'RED',
+      variance: (v) => v !== null ? (v === 0 ? '—' : `+${v}`) : null,
+    },
+    {
+      key: 'avgResolutionHours',
+      label: 'Avg. defect resolution turnaround (hours)',
+      target: '≤ 24 hrs',
+      getValue: (p) => p.avgResolutionHours,
+      format: (v) => `${v}h`,
+      getRag: (v) => rag(v, { green: 24, amber: 48, lowerIsBetter: true }),
+      variance: (v) => v !== null ? (v <= 24 ? `−${Math.round(24 - v)}h` : `+${Math.round(v - 24)}h`) : null,
+    },
+    {
+      key: 'regressionPassRate',
+      label: 'Regression pass rate (%)',
+      target: '≥ 95%',
+      getValue: (p) => p.regressionPassRate,
+      format: (v) => `${v}%`,
+      getRag: (v) => rag(v, { green: 95, amber: 80 }),
+      variance: (v) => v !== null ? `${v >= 95 ? '+' : ''}${v - 95}%` : null,
+    },
+    {
+      key: 'staleCases',
+      label: 'Stale test cases (#)',
+      target: '0',
+      getValue: (_p, data) => data.staleCases,
+      format: (v) => String(v),
+      getRag: (v) => v === null ? null : v === 0 ? 'GREEN' : v <= 50 ? 'AMBER' : 'RED',
+      variance: (v) => v !== null ? (v === 0 ? '—' : `+${v}`) : null,
+    },
+    {
+      key: 'activeProjects',
+      label: 'Projects with active test runs this week (#)',
+      target: String(d.totalProjects),
+      getValue: (p) => p.activeProjects,
+      format: (v) => String(v),
+      getRag: (v) => {
+        if (v === null) return null;
+        if (v >= d.totalProjects) return 'GREEN';
+        if (v >= Math.ceil(d.totalProjects * 0.7)) return 'AMBER';
+        return 'RED';
+      },
+      variance: (v) => v !== null ? (v >= d.totalProjects ? '—' : `−${d.totalProjects - v}`) : null,
+    },
+  ];
+}
+
+function buildKpiCopyText(d: KpiData, rows: KpiRowDef[], period: string): string {
+  const lines = [`QA KPI Performance — ${period}`, '', 'KPI | Target | Actual | Var. | RAG', '─'.repeat(60)];
+  for (const row of rows) {
+    const actual = row.getValue(d.current, d);
+    const formatted = actual !== null ? row.format(actual) : '[ ]';
+    const variance  = row.variance(actual, null) ?? '—';
+    const ragVal    = row.getRag(actual);
+    lines.push(`${row.label} | ${row.target} | ${formatted} | ${variance} | ${ragVal ?? '—'}`);
+  }
+  return lines.join('\n');
+}
+
+function KpiPerformanceView({ data, isLoading, period }: {
+  data: KpiData | undefined;
+  isLoading: boolean;
+  period: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  if (isLoading) return <div style={{ padding: 40, textAlign: 'center' }}><Spinner size="lg" /></div>;
+  if (!data)     return <EmptyState icon="📈" title="No data" description="Select a date range to load KPI data." />;
+
+  const rows = buildKpiRows(data);
+
+  function copy() {
+    navigator.clipboard.writeText(buildKpiCopyText(data!, rows, period)).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  const th: React.CSSProperties = {
+    fontSize: '0.6875rem', fontWeight: 700, color: 'var(--gray-400)',
+    textTransform: 'uppercase', letterSpacing: '0.07em',
+    padding: '10px 14px', borderBottom: '2px solid var(--border-color)',
+    whiteSpace: 'nowrap', background: 'var(--surface-raised)',
+  };
+  const td: React.CSSProperties = {
+    padding: '11px 14px', borderBottom: '1px solid var(--border-color)', verticalAlign: 'middle',
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: '1.0625rem', color: 'var(--gray-900)' }}>KPI Performance</div>
+          <div style={{ fontSize: '0.8125rem', color: 'var(--gray-400)', marginTop: 2 }}>
+            {period} · W−3 to This Wk trend · shaded GREEN / AMBER / RED each week
+          </div>
+        </div>
+        <Button variant="secondary" size="sm" onClick={copy}>
+          {copied ? '✓ Copied!' : '📋 Copy for slides'}
+        </Button>
+      </div>
+
+      <div style={{ overflowX: 'auto', borderRadius: 10, border: '1px solid var(--border-color)' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+          <thead>
+            <tr>
+              <th style={{ ...th, textAlign: 'left', minWidth: 280 }}>KPI</th>
+              <th style={{ ...th, textAlign: 'center' }}>Target</th>
+              <th style={{ ...th, textAlign: 'center' }}>Actual</th>
+              <th style={{ ...th, textAlign: 'center' }}>Var.</th>
+              <th style={{ ...th, textAlign: 'center' }}>W−3</th>
+              <th style={{ ...th, textAlign: 'center' }}>W−2</th>
+              <th style={{ ...th, textAlign: 'center' }}>W−1</th>
+              <th style={{ ...th, textAlign: 'center' }}>This Wk</th>
+              <th style={{ ...th, textAlign: 'center' }}>RAG</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => {
+              const isLast   = i === rows.length - 1;
+              const actual   = row.getValue(data.current, data);
+              const ragVal   = row.getRag(actual);
+              const variance = row.variance(actual, null);
+              const w3v = row.getValue(data.w3, data);
+              const w2v = row.getValue(data.w2, data);
+              const w1v = row.getValue(data.w1, data);
+              const rowTd = { ...td, borderBottom: isLast ? 'none' : td.borderBottom };
+              return (
+                <tr key={row.key}>
+                  <td style={{ ...rowTd, color: 'var(--gray-800)', fontWeight: 500 }}>{row.label}</td>
+                  <td style={{ ...rowTd, textAlign: 'center', color: 'var(--gray-500)', fontFamily: 'monospace', fontSize: '0.8125rem' }}>{row.target}</td>
+                  <td style={{ ...rowTd, textAlign: 'center', fontWeight: 700, color: actual !== null ? (ragVal ? RAG_STYLE[ragVal].color : 'var(--gray-700)') : 'var(--gray-300)' }}>
+                    {actual !== null ? row.format(actual) : '[ ]'}
+                  </td>
+                  <td style={{ ...rowTd, textAlign: 'center', fontFamily: 'monospace', fontSize: '0.8125rem', color: variance && variance !== '—' ? (variance.startsWith('+') || variance.startsWith('−') && row.key !== 'avgResolutionHours' && row.key !== 'staleCases' && row.key !== 'criticalEscaping' ? 'var(--color-success)' : '#DC2626') : 'var(--gray-400)' }}>
+                    {variance ?? '—'}
+                  </td>
+                  <TrendCell value={w3v} label={w3v !== null ? row.format(w3v) : '—'} ragVal={row.getRag(w3v)} />
+                  <TrendCell value={w2v} label={w2v !== null ? row.format(w2v) : '—'} ragVal={row.getRag(w2v)} />
+                  <TrendCell value={w1v} label={w1v !== null ? row.format(w1v) : '—'} ragVal={row.getRag(w1v)} />
+                  <TrendCell value={actual} label={actual !== null ? row.format(actual) : '—'} ragVal={ragVal} />
+                  <td style={{ ...rowTd, textAlign: 'center' }}><RagBadge value={ragVal} /></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {copied && (
+        <div style={{
+          marginTop: 12, padding: '10px 14px',
+          background: '#F0FDF4', border: '1px solid #BBF7D0',
+          borderRadius: 8, fontSize: '0.8125rem', color: '#166534', fontWeight: 500,
+        }}>
+          Copied to clipboard — paste into your KPI Performance slide
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Exec Summary types & component ───────────────────────────────────────────

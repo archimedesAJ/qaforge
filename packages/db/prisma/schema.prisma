@@ -275,7 +275,8 @@ model Defect {
   title       String?
   tracker     String    // jira | github | linear | internal
   externalRef String?   // full URL to the ticket
-  status      String    @default("open") // open | in_progress | resolved | closed | wont_fix
+  status      String    @default("open")   // open | in_progress | resolved | closed | wont_fix
+  severity    String    @default("medium") // critical | high | medium | low
   notes       String?
   attachments Json?
   createdAt   DateTime  @default(now())

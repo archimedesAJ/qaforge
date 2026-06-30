@@ -1,0 +1,1 @@
+ALTER TABLE "Defect" ADD COLUMN "severity" TEXT NOT NULL DEFAULT 'medium';
