@@ -220,7 +220,6 @@ p  { color: var(--gray-600); line-height: 1.6; }
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  position: relative;
   transition: width 0.16s ease;
 }
 .app-sidebar.collapsed {
@@ -228,25 +227,23 @@ p  { color: var(--gray-600); line-height: 1.6; }
   overflow-x: hidden;
 }
 .sidebar-toggle {
-  position: absolute;
-  top: 20px;
-  right: -12px;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  background: var(--gray-700);
-  border: 1px solid rgba(255,255,255,0.15);
-  color: #fff;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.18);
+  color: rgba(255,255,255,0.75);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 0.75rem;
   cursor: pointer;
-  z-index: 5;
+  flex-shrink: 0;
   transition: background 0.15s;
 }
 .sidebar-toggle:hover {
-  background: var(--gray-600);
+  background: rgba(255,255,255,0.18);
+  color: #fff;
 }
 .app-main {
   flex: 1;

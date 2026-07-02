@@ -73,29 +73,31 @@ export function AppLayout({ children, title, actions }: AppLayoutProps) {
     <div className="app-layout">
       {/* Sidebar */}
       <aside className={`app-sidebar${collapsed ? ' collapsed' : ''}`}>
-        <button
-          className="sidebar-toggle"
-          onClick={toggleCollapsed}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          {collapsed ? '›' : '‹'}
-        </button>
-
         {/* Logo */}
         <div style={{
-          padding: collapsed ? '18px 0 14px' : '18px 16px 14px',
+          padding: collapsed ? '14px 0' : '18px 16px 14px',
           borderBottom: '1px solid rgba(255,255,255,0.08)',
           display: 'flex',
+          flexDirection: collapsed ? 'column' : 'row',
           alignItems: 'center',
-          justifyContent: collapsed ? 'center' : 'flex-start',
+          justifyContent: collapsed ? 'center' : 'space-between',
           gap: 10,
         }}>
-          <img
-            src="/favicon.svg"
-            alt="QAForge"
-            style={{ width: 30, height: 30, borderRadius: 7, flexShrink: 0 }}
-          />
-          {!collapsed && <span style={{ fontWeight: 700, fontSize: '1rem', color: '#fff' }}>QAForge</span>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, overflow: 'hidden' }}>
+            <img
+              src="/favicon.svg"
+              alt="QAForge"
+              style={{ width: 30, height: 30, borderRadius: 7, flexShrink: 0 }}
+            />
+            {!collapsed && <span style={{ fontWeight: 700, fontSize: '1rem', color: '#fff', whiteSpace: 'nowrap' }}>QAForge</span>}
+          </div>
+          <button
+            className="sidebar-toggle"
+            onClick={toggleCollapsed}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed ? '›' : '‹'}
+          </button>
         </div>
 
         {/* Back to projects */}
