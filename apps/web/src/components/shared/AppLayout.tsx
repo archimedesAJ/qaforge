@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, useState } from 'react';
 import { NavLink, useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/auth';
 import { ThemeToggle } from './ThemeToggle';
@@ -9,16 +9,20 @@ interface NavItem {
   icon: string;
 }
 
-function SidebarItem({ to, label, icon }: NavItem) {
+const SIDEBAR_COLLAPSED_KEY = 'qaforge:sidebarCollapsed';
+
+function SidebarItem({ to, label, icon, collapsed }: NavItem & { collapsed: boolean }) {
   return (
     <NavLink
       to={to}
       end
+      title={collapsed ? label : undefined}
       style={({ isActive }) => ({
         display: 'flex',
         alignItems: 'center',
         gap: 10,
-        padding: '8px 14px',
+        padding: collapsed ? '8px 0' : '8px 14px',
+        justifyContent: collapsed ? 'center' : 'flex-start',
         fontSize: '0.9rem',
         fontWeight: 500,
         color: isActive ? '#fff' : 'rgba(255,255,255,0.6)',
@@ -29,8 +33,8 @@ function SidebarItem({ to, label, icon }: NavItem) {
         transition: 'all 0.15s',
       })}
     >
-      <span style={{ fontSize: '1rem', width: 20, textAlign: 'center' }}>{icon}</span>
-      {label}
+      <span style={{ fontSize: '1rem', width: 20, textAlign: 'center', flexShrink: 0 }}>{icon}</span>
+      {!collapsed && label}
     </NavLink>
   );
 }
@@ -45,6 +49,15 @@ export function AppLayout({ children, title, actions }: AppLayoutProps) {
   const { projectId } = useParams<{ projectId: string }>();
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1');
+
+  function toggleCollapsed() {
+    setCollapsed(prev => {
+      const next = !prev;
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? '1' : '0');
+      return next;
+    });
+  }
 
   const projectNav: NavItem[] = projectId ? [
     { to: `/projects/${projectId}`,          label: 'Dashboard',   icon: '▦' },
@@ -59,43 +72,54 @@ export function AppLayout({ children, title, actions }: AppLayoutProps) {
   return (
     <div className="app-layout">
       {/* Sidebar */}
-      <aside className="app-sidebar">
+      <aside className={`app-sidebar${collapsed ? ' collapsed' : ''}`}>
+        <button
+          className="sidebar-toggle"
+          onClick={toggleCollapsed}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {collapsed ? '›' : '‹'}
+        </button>
+
         {/* Logo */}
         <div style={{
-          padding: '18px 16px 14px',
+          padding: collapsed ? '18px 0 14px' : '18px 16px 14px',
           borderBottom: '1px solid rgba(255,255,255,0.08)',
           display: 'flex',
           alignItems: 'center',
+          justifyContent: collapsed ? 'center' : 'flex-start',
           gap: 10,
         }}>
           <img
             src="/favicon.svg"
             alt="QAForge"
-            style={{ width: 30, height: 30, borderRadius: 7 }}
+            style={{ width: 30, height: 30, borderRadius: 7, flexShrink: 0 }}
           />
-          <span style={{ fontWeight: 700, fontSize: '1rem', color: '#fff' }}>QAForge</span>
+          {!collapsed && <span style={{ fontWeight: 700, fontSize: '1rem', color: '#fff' }}>QAForge</span>}
         </div>
 
         {/* Back to projects */}
         {projectId && (
-          <div style={{ padding: '10px 8px 4px' }}>
+          <div style={{ padding: collapsed ? '10px 0 4px' : '10px 8px 4px' }}>
             <button
               onClick={() => navigate('/')}
+              title="All projects"
               style={{
                 display: 'flex', alignItems: 'center', gap: 8,
-                width: '100%', padding: '6px 10px',
+                justifyContent: collapsed ? 'center' : 'flex-start',
+                width: '100%', padding: collapsed ? '6px 0' : '6px 10px',
                 background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)',
                 fontSize: '0.8125rem', cursor: 'pointer', borderRadius: 5,
                 textAlign: 'left',
               }}
             >
-              ← All projects
+              {collapsed ? '←' : '← All projects'}
             </button>
           </div>
         )}
 
         {/* Nav section label */}
-        {projectId && (
+        {projectId && !collapsed && (
           <div style={{
             padding: '8px 20px 4px',
             fontSize: '0.6875rem',
@@ -111,18 +135,19 @@ export function AppLayout({ children, title, actions }: AppLayoutProps) {
         {/* Nav items */}
         <nav style={{ flex: 1, paddingTop: 4 }}>
           {projectNav.length > 0
-            ? projectNav.map(item => <SidebarItem key={item.to} {...item} />)
+            ? projectNav.map(item => <SidebarItem key={item.to} {...item} collapsed={collapsed} />)
             : (
-              <SidebarItem to="/" label="Projects" icon="▦" />
+              <SidebarItem to="/" label="Projects" icon="▦" collapsed={collapsed} />
             )
           }
         </nav>
 
         {/* User area */}
         <div style={{
-          padding: '12px 14px',
+          padding: collapsed ? '12px 0' : '12px 14px',
           borderTop: '1px solid rgba(255,255,255,0.08)',
           display: 'flex', alignItems: 'center', gap: 10,
+          justifyContent: collapsed ? 'center' : 'flex-start',
         }}>
           <div style={{
             width: 30, height: 30, borderRadius: '50%',
@@ -133,21 +158,25 @@ export function AppLayout({ children, title, actions }: AppLayoutProps) {
           }}>
             {user?.name?.charAt(0).toUpperCase() ?? 'U'}
           </div>
-          <div style={{ flex: 1, overflow: 'hidden' }}>
-            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {user?.name}
-            </div>
-            <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {user?.email}
-            </div>
-          </div>
-          <button
-            onClick={logout}
-            title="Sign out"
-            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '1rem', padding: 4 }}
-          >
-            ⎋
-          </button>
+          {!collapsed && (
+            <>
+              <div style={{ flex: 1, overflow: 'hidden' }}>
+                <div style={{ fontSize: '0.875rem', fontWeight: 500, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {user?.name}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {user?.email}
+                </div>
+              </div>
+              <button
+                onClick={logout}
+                title="Sign out"
+                style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '1rem', padding: 4 }}
+              >
+                ⎋
+              </button>
+            </>
+          )}
         </div>
       </aside>
 
