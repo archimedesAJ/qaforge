@@ -1343,6 +1343,7 @@ function TrendCell({ value, label, ragVal }: { value: number | null; label: stri
 interface KpiRowDef {
   key: string;
   label: string;
+  description: string;
   target: string;
   getValue: (p: KpiPeriod, d: KpiData) => number | null;
   format: (v: number) => string;
@@ -1355,6 +1356,7 @@ function buildKpiRows(d: KpiData): KpiRowDef[] {
     {
       key: 'execRate',
       label: 'Test execution rate — planned vs completed (%)',
+      description: 'Share of active test cases that were run at least once this period: distinct test cases with a recorded run result ÷ total active test cases.',
       target: '100%',
       getValue: (p) => p.execRate,
       format: (v) => `${v}%`,
@@ -1364,6 +1366,7 @@ function buildKpiRows(d: KpiData): KpiRowDef[] {
     {
       key: 'defectDetectionRate',
       label: 'Defect detection rate (%)',
+      description: 'Of all defects filed this period, the share that were caught during test execution (linked to a run result) rather than found some other way, e.g. in production.',
       target: '≥ 98%',
       getValue: (p) => p.defectDetectionRate,
       format: (v) => `${v}%`,
@@ -1373,6 +1376,7 @@ function buildKpiRows(d: KpiData): KpiRowDef[] {
     {
       key: 'criticalEscaping',
       label: 'Critical defects escaping to production (#)',
+      description: 'Count of critical-severity defects filed this period that are NOT linked to a test run result — i.e. found outside of QA execution rather than caught by testing.',
       target: '0',
       getValue: (p) => p.criticalEscaping,
       format: (v) => String(v),
@@ -1382,6 +1386,7 @@ function buildKpiRows(d: KpiData): KpiRowDef[] {
     {
       key: 'avgResolutionHours',
       label: 'Avg. defect resolution turnaround (hours)',
+      description: 'Average time from a defect being created to being marked resolved/closed, averaged across defects that were resolved or closed this period.',
       target: '≤ 24 hrs',
       getValue: (p) => p.avgResolutionHours,
       format: (v) => `${v}h`,
@@ -1391,6 +1396,7 @@ function buildKpiRows(d: KpiData): KpiRowDef[] {
     {
       key: 'regressionPassRate',
       label: 'Regression pass rate (%)',
+      description: 'Pass rate across all pass/fail run results recorded this period: passed runs ÷ (passed + failed runs).',
       target: '≥ 95%',
       getValue: (p) => p.regressionPassRate,
       format: (v) => `${v}%`,
@@ -1400,6 +1406,7 @@ function buildKpiRows(d: KpiData): KpiRowDef[] {
     {
       key: 'staleCases',
       label: 'Stale test cases (#)',
+      description: 'Test cases currently flagged stale in the coverage snapshot (e.g. not run in a long time). This reflects current state, not the selected period.',
       target: '0',
       getValue: (_p, data) => data.staleCases,
       format: (v) => String(v),
@@ -1409,6 +1416,7 @@ function buildKpiRows(d: KpiData): KpiRowDef[] {
     {
       key: 'activeProjects',
       label: 'Projects with active test runs this week (#)',
+      description: 'Number of distinct projects that started at least one test run this period, out of all projects.',
       target: String(d.totalProjects),
       getValue: (p) => p.activeProjects,
       format: (v) => String(v),
@@ -1505,7 +1513,23 @@ function KpiPerformanceView({ data, isLoading, period }: {
               const rowTd = { ...td, borderBottom: isLast ? 'none' : td.borderBottom };
               return (
                 <tr key={row.key}>
-                  <td style={{ ...rowTd, color: 'var(--gray-800)', fontWeight: 500 }}>{row.label}</td>
+                  <td style={{ ...rowTd, color: 'var(--gray-800)', fontWeight: 500 }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      {row.label}
+                      <span
+                        title={row.description}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          width: 14, height: 14, borderRadius: '50%',
+                          fontSize: '0.625rem', fontWeight: 700, lineHeight: 1,
+                          color: 'var(--gray-400)', border: '1px solid var(--gray-300)',
+                          cursor: 'help', flexShrink: 0,
+                        }}
+                      >
+                        ?
+                      </span>
+                    </span>
+                  </td>
                   <td style={{ ...rowTd, textAlign: 'center', color: 'var(--gray-500)', fontFamily: 'monospace', fontSize: '0.8125rem' }}>{row.target}</td>
                   <td style={{ ...rowTd, textAlign: 'center', fontWeight: 700, color: actual !== null ? (ragVal ? RAG_STYLE[ragVal].color : 'var(--gray-700)') : 'var(--gray-300)' }}>
                     {actual !== null ? row.format(actual) : '[ ]'}
