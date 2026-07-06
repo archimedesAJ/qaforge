@@ -25,6 +25,12 @@ interface ActivityResponse {
   pagination: { page: number; limit: number; total: number };
 }
 
+interface AdminUser {
+  id: string;
+  email: string;
+  name: string;
+}
+
 const ACTION_LABELS: Record<string, { label: string; icon: string; color: string }> = {
   defect_filed:        { label: 'Filed defect',       icon: '🐛', color: '#DC2626' },
   defect_updated:      { label: 'Updated defect',     icon: '✏️', color: '#D97706' },
@@ -44,6 +50,13 @@ const ACTION_LABELS: Record<string, { label: string; icon: string; color: string
 
 function formatAction(action: string) {
   return ACTION_LABELS[action] ?? { label: action.replace(/_/g, ' '), icon: '📌', color: '#6B7280' };
+}
+
+function exactTimestamp(dateStr: string) {
+  return new Date(dateStr).toLocaleString('en-GB', {
+    day: 'numeric', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
 }
 
 function timeAgo(dateStr: string) {
@@ -73,6 +86,7 @@ export function ActivityLogsPage() {
   const [page,      setPage]      = useState(1);
   const [action,    setAction]    = useState('');
   const [projectId, setProjectId] = useState('');
+  const [userId,    setUserId]    = useState('');
   const [since,     setSince]     = useState('');
   const [until,     setUntil]     = useState('');
 
@@ -89,21 +103,28 @@ export function ActivityLogsPage() {
     limit: '50',
     ...(action    && { action }),
     ...(projectId && { projectId }),
+    ...(userId    && { userId }),
     ...(since     && { since: new Date(since).toISOString() }),
     ...(until     && { until: new Date(until + 'T23:59:59').toISOString() }),
   });
 
   const { data, isLoading } = useQuery<ActivityResponse>({
-    queryKey: ['activity-logs', page, action, projectId, since, until],
+    queryKey: ['activity-logs', page, action, projectId, userId, since, until],
     queryFn:  () => api.get<ActivityResponse>(`projects/sysadmin/activity?${params}`),
   });
+
+  const { data: usersData } = useQuery<{ users: AdminUser[] }>({
+    queryKey: ['sysadmin-users'],
+    queryFn:  () => api.get<{ users: AdminUser[] }>('projects/sysadmin/users'),
+  });
+  const users = usersData?.users ?? [];
 
   const logs  = data?.logs ?? [];
   const total = data?.pagination.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / 50));
 
   function resetFilters() {
-    setPage(1); setAction(''); setProjectId(''); setSince(''); setUntil('');
+    setPage(1); setAction(''); setProjectId(''); setUserId(''); setSince(''); setUntil('');
   }
 
   const inputStyle: React.CSSProperties = {
@@ -144,6 +165,16 @@ export function ActivityLogsPage() {
             ))}
           </select>
 
+          <select
+            value={userId} onChange={e => { setUserId(e.target.value); setPage(1); }}
+            style={inputStyle}
+          >
+            <option value="">All users</option>
+            {users.map(u => (
+              <option key={u.id} value={u.id}>{u.name || u.email}</option>
+            ))}
+          </select>
+
           <input
             value={since} type="date" onChange={e => { setSince(e.target.value); setPage(1); }}
             style={inputStyle} placeholder="From date"
@@ -153,7 +184,7 @@ export function ActivityLogsPage() {
             style={inputStyle} placeholder="To date"
           />
 
-          {(action || projectId || since || until) && (
+          {(action || projectId || userId || since || until) && (
             <Button variant="ghost" size="sm" onClick={resetFilters}>Clear</Button>
           )}
         </div>
@@ -225,11 +256,13 @@ export function ActivityLogsPage() {
                 </div>
 
                 {/* Timestamp */}
-                <div style={{
-                  flexShrink: 0, fontSize: '0.75rem', color: 'var(--gray-400)',
-                  whiteSpace: 'nowrap', paddingTop: 2,
-                }} title={new Date(log.createdAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}>
-                  {timeAgo(log.createdAt)}
+                <div style={{ flexShrink: 0, textAlign: 'right', paddingTop: 2 }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', whiteSpace: 'nowrap' }}>
+                    {timeAgo(log.createdAt)}
+                  </div>
+                  <div style={{ fontSize: '0.6875rem', color: 'var(--gray-300)', whiteSpace: 'nowrap', marginTop: 1 }}>
+                    {exactTimestamp(log.createdAt)}
+                  </div>
                 </div>
               </div>
             );
