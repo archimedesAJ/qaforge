@@ -130,6 +130,34 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
     return { keys };
   });
 
+  // GET /projects/:projectId/members/search-users?q= — manager+
+  // Search existing activated users not already on this project, for the invite picker.
+  app.get('/:projectId/members/search-users', { preHandler: requireRole('manager') }, async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const { q = '' } = req.query as { q?: string };
+    if (q.trim().length < 2) return { users: [] };
+
+    const existingMemberIds = await prisma.projectMember.findMany({
+      where: { projectId },
+      select: { userId: true },
+    });
+
+    const users = await prisma.user.findMany({
+      where: {
+        activated: true,
+        id: { notIn: existingMemberIds.map(m => m.userId) },
+        OR: [
+          { name:  { contains: q, mode: 'insensitive' } },
+          { email: { contains: q, mode: 'insensitive' } },
+        ],
+      },
+      select: { id: true, name: true, email: true },
+      orderBy: { name: 'asc' },
+      take: 8,
+    });
+    return { users };
+  });
+
   // POST /projects/:projectId/members/invite — manager+
   app.post('/:projectId/members/invite', { preHandler: requireRole('manager') }, async (req, reply) => {
     const { projectId } = req.params as { projectId: string };

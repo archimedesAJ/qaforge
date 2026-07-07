@@ -1,4 +1,4 @@
-import { useState, useEffect, FormEvent } from 'react';
+import { useState, useEffect, useRef, FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '../components/shared/AppLayout';
@@ -23,6 +23,12 @@ interface PendingInvite {
   role: string;
   createdAt: string;
   expiresAt: string;
+}
+
+interface UserSuggestion {
+  id: string;
+  name: string;
+  email: string;
 }
 
 interface ApiKey {
@@ -231,11 +237,36 @@ function TeamTab({ projectId }: { projectId: string }) {
   const [error, setError]   = useState('');
   const [success, setSuccess] = useState('');
   const [confirmRemove, setConfirmRemove] = useState<{ userId: string; name: string } | null>(null);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [debouncedQuery, setDebouncedQuery]   = useState('');
+  const suggestionsRef = useRef<HTMLDivElement>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['project', projectId],
     queryFn: () => api.get<{ members: Member[]; pendingInvites: PendingInvite[] }>(`projects/${projectId}`),
   });
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(inviteEmail.trim()), 250);
+    return () => clearTimeout(t);
+  }, [inviteEmail]);
+
+  const { data: userSearchData } = useQuery({
+    queryKey: ['member-search', projectId, debouncedQuery],
+    queryFn: () => api.get<{ users: UserSuggestion[] }>(`projects/${projectId}/members/search-users?q=${encodeURIComponent(debouncedQuery)}`),
+    enabled: debouncedQuery.length >= 2,
+  });
+  const suggestions = showSuggestions ? (userSearchData?.users ?? []) : [];
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (suggestionsRef.current && !suggestionsRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    }
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, []);
 
   const invite = useMutation({
     mutationFn: () =>
@@ -282,7 +313,7 @@ function TeamTab({ projectId }: { projectId: string }) {
         <>
           <SectionHeader
             title="Invite member"
-            desc="Send an invite email so they can set their password and join."
+            desc="Search for an existing user, or type an email to invite someone new."
           />
 
           {error   && <div style={{ marginBottom: 12 }}><Alert type="error">{error}</Alert></div>}
@@ -290,13 +321,56 @@ function TeamTab({ projectId }: { projectId: string }) {
 
           <form onSubmit={handleInvite}>
             <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
-              <Input
-                placeholder="colleague@example.com"
-                type="email"
-                value={inviteEmail}
-                onChange={e => setInviteEmail(e.target.value)}
-                style={{ flex: 1, marginBottom: 0 }}
-              />
+              <div ref={suggestionsRef} style={{ position: 'relative', flex: 1 }}>
+                <Input
+                  placeholder="Search by name or email…"
+                  type="text"
+                  value={inviteEmail}
+                  onChange={e => { setInviteEmail(e.target.value); setShowSuggestions(true); }}
+                  onFocus={() => setShowSuggestions(true)}
+                  style={{ marginBottom: 0 }}
+                  autoComplete="off"
+                />
+                {showSuggestions && suggestions.length > 0 && (
+                  <div style={{
+                    position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 20,
+                    background: 'var(--surface-base)', border: '1px solid var(--border-color)',
+                    borderRadius: 8, boxShadow: 'var(--shadow-md)', overflow: 'hidden',
+                  }}>
+                    {suggestions.map(u => (
+                      <button
+                        key={u.id}
+                        type="button"
+                        onClick={() => { setInviteEmail(u.email); setShowSuggestions(false); }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                          padding: '8px 12px', background: 'none', border: 'none',
+                          borderBottom: '1px solid var(--border-color)', cursor: 'pointer', textAlign: 'left',
+                        }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--surface-raised)'; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'none'; }}
+                      >
+                        <div style={{
+                          width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
+                          background: 'var(--color-primary-light)', color: 'var(--color-primary)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: '0.6875rem', fontWeight: 700,
+                        }}>
+                          {(u.name || u.email).charAt(0).toUpperCase()}
+                        </div>
+                        <div style={{ overflow: 'hidden' }}>
+                          <div style={{ fontSize: '0.8125rem', fontWeight: 500, color: 'var(--gray-900)', whiteSpace: 'nowrap' }}>
+                            {u.name || u.email}
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', whiteSpace: 'nowrap' }}>
+                            {u.email}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <select
                 className="input"
                 style={{ width: 115 }}
