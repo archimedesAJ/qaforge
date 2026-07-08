@@ -337,20 +337,24 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
       ])
     );
 
-    // Pre-load existing titles to prevent duplicates
+    // Pre-load existing cases so duplicate titles update in place instead of being skipped
     const existingCases = await prisma.testCase.findMany({
       where: { projectId, archived: false },
-      select: { title: true },
+      select: { id: true, lineageId: true, version: true, title: true },
     });
-    const existingTitles = new Set(existingCases.map((c: { title: string }) => c.title.toLowerCase().trim()));
+    const existingByTitle = new Map(
+      existingCases.map((c: { id: string; lineageId: string | null; version: number; title: string }) =>
+        [c.title.toLowerCase().trim(), { id: c.id, lineageId: c.lineageId, version: c.version }]
+      )
+    );
 
     const VALID_TYPES  = new Set(['manual', 'functional', 'ui_auto', 'api', 'perf', 'exploratory']);
     const VALID_PRIOS  = new Set(['p0', 'p1', 'p2', 'p3']);
 
     let imported = 0;
-    let skipped  = 0;
+    let updated  = 0;
     let warnings = 0;
-    const issues: { row: number; title?: string; level: 'error' | 'skipped' | 'warning'; message: string }[] = [];
+    const issues: { row: number; title?: string; level: 'error' | 'updated' | 'warning'; message: string }[] = [];
 
     for (let i = 0; i < rows.length; i++) {
       const row    = rows[i];
@@ -359,11 +363,7 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
       const title = row['title']?.trim();
       if (!title) { issues.push({ row: rowNum, level: 'error', message: 'Missing title — this column is required' }); continue; }
 
-      if (existingTitles.has(title.toLowerCase())) {
-        skipped++;
-        issues.push({ row: rowNum, title, level: 'skipped', message: `Duplicate title — a test case named "${title}" already exists in this project` });
-        continue;
-      }
+      const existingMatch = existingByTitle.get(title.toLowerCase());
 
       const rawType = row['type']?.trim();
       if (rawType && !VALID_TYPES.has(rawType)) {
@@ -420,18 +420,36 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
       }
 
       try {
-        const created = await prisma.testCase.create({
-          data: { projectId, title, type, priority, tags, suiteId, preconditions, steps: stepsData as object | undefined, version: 1, createdById: userId },
-        });
-        await prisma.testCase.update({ where: { id: created.id }, data: { lineageId: created.id } });
-        existingTitles.add(title.toLowerCase()); // prevent in-file duplicates too
-        imported++;
+        if (existingMatch) {
+          // Never mutate in place — archive the old version and create the next one,
+          // same convention as the manual PUT edit endpoint above, so history stays intact.
+          await prisma.testCase.update({ where: { id: existingMatch.id }, data: { archived: true } });
+          const newVersion = await prisma.testCase.create({
+            data: {
+              projectId, title, type, priority, tags, suiteId, preconditions,
+              steps: stepsData as object | undefined,
+              lineageId: existingMatch.lineageId ?? existingMatch.id,
+              version: existingMatch.version + 1,
+              createdById: userId,
+            },
+          });
+          existingByTitle.set(title.toLowerCase(), { id: newVersion.id, lineageId: newVersion.lineageId, version: newVersion.version });
+          updated++;
+          issues.push({ row: rowNum, title, level: 'updated', message: `Updated existing test case — version ${existingMatch.version} → ${newVersion.version}` });
+        } else {
+          const created = await prisma.testCase.create({
+            data: { projectId, title, type, priority, tags, suiteId, preconditions, steps: stepsData as object | undefined, version: 1, createdById: userId },
+          });
+          await prisma.testCase.update({ where: { id: created.id }, data: { lineageId: created.id } });
+          existingByTitle.set(title.toLowerCase(), { id: created.id, lineageId: created.id, version: 1 }); // prevent in-file duplicates from re-creating
+          imported++;
+        }
       } catch (err) {
         issues.push({ row: rowNum, title, level: 'error', message: String(err) });
       }
     }
 
-    return reply.code(201).send({ imported, skipped, warnings, issues });
+    return reply.code(201).send({ imported, updated, warnings, issues });
   });
 
   // GET /projects/:projectId/cases/export — download active cases as Excel — viewer+

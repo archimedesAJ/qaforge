@@ -330,20 +330,20 @@ export function CaseList({ projectId, suiteId, canEdit = true, onEdit, onNew }: 
 interface ImportIssue {
   row: number;
   title?: string;
-  level: 'error' | 'skipped' | 'warning';
+  level: 'error' | 'updated' | 'warning';
   message: string;
 }
 
 interface ImportResult {
   imported: number;
-  skipped: number;
+  updated: number;
   warnings: number;
   issues: ImportIssue[];
 }
 
 const ISSUE_STYLE: Record<ImportIssue['level'], { label: string; color: string; bg: string }> = {
   error:   { label: 'Error',   color: '#B91C1C', bg: '#FEF2F2' },
-  skipped: { label: 'Skipped', color: '#B45309', bg: '#FFFBEB' },
+  updated: { label: 'Updated', color: '#1D4ED8', bg: '#EFF6FF' },
   warning: { label: 'Warning', color: '#B45309', bg: '#FFFBEB' },
 };
 
@@ -445,9 +445,9 @@ function CsvImportModal({
               <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--color-success)' }}>{result.imported}</div>
               <div style={{ fontSize: '0.8125rem', color: 'var(--color-success)' }}>Imported</div>
             </div>
-            <div style={{ flex: 1, padding: '12px 16px', background: result.skipped > 0 ? '#fef3c7' : 'var(--gray-50)', borderRadius: 8, textAlign: 'center' }}>
-              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: result.skipped > 0 ? '#d97706' : 'var(--gray-400)' }}>{result.skipped}</div>
-              <div style={{ fontSize: '0.8125rem', color: result.skipped > 0 ? '#d97706' : 'var(--gray-400)' }}>Skipped</div>
+            <div style={{ flex: 1, padding: '12px 16px', background: result.updated > 0 ? '#eff6ff' : 'var(--gray-50)', borderRadius: 8, textAlign: 'center' }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: result.updated > 0 ? '#1d4ed8' : 'var(--gray-400)' }}>{result.updated}</div>
+              <div style={{ fontSize: '0.8125rem', color: result.updated > 0 ? '#1d4ed8' : 'var(--gray-400)' }}>Updated</div>
             </div>
             <div style={{ flex: 1, padding: '12px 16px', background: result.warnings > 0 ? '#fef3c7' : 'var(--gray-50)', borderRadius: 8, textAlign: 'center' }}>
               <div style={{ fontSize: '1.5rem', fontWeight: 700, color: result.warnings > 0 ? '#d97706' : 'var(--gray-400)' }}>{result.warnings}</div>
