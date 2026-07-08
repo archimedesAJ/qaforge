@@ -327,11 +327,25 @@ export function CaseList({ projectId, suiteId, canEdit = true, onEdit, onNew }: 
 }
 
 // ── CSV Import Modal ──────────────────────────────────────────
+interface ImportIssue {
+  row: number;
+  title?: string;
+  level: 'error' | 'skipped' | 'warning';
+  message: string;
+}
+
 interface ImportResult {
   imported: number;
   skipped: number;
-  errors: { row: number; error: string }[];
+  warnings: number;
+  issues: ImportIssue[];
 }
+
+const ISSUE_STYLE: Record<ImportIssue['level'], { label: string; color: string; bg: string }> = {
+  error:   { label: 'Error',   color: '#B91C1C', bg: '#FEF2F2' },
+  skipped: { label: 'Skipped', color: '#B45309', bg: '#FFFBEB' },
+  warning: { label: 'Warning', color: '#B45309', bg: '#FFFBEB' },
+};
 
 function CsvImportModal({
   open, projectId, onClose, onImported,
@@ -435,15 +449,42 @@ function CsvImportModal({
               <div style={{ fontSize: '1.5rem', fontWeight: 700, color: result.skipped > 0 ? '#d97706' : 'var(--gray-400)' }}>{result.skipped}</div>
               <div style={{ fontSize: '0.8125rem', color: result.skipped > 0 ? '#d97706' : 'var(--gray-400)' }}>Skipped</div>
             </div>
+            <div style={{ flex: 1, padding: '12px 16px', background: result.warnings > 0 ? '#fef3c7' : 'var(--gray-50)', borderRadius: 8, textAlign: 'center' }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: result.warnings > 0 ? '#d97706' : 'var(--gray-400)' }}>{result.warnings}</div>
+              <div style={{ fontSize: '0.8125rem', color: result.warnings > 0 ? '#d97706' : 'var(--gray-400)' }}>Warnings</div>
+            </div>
           </div>
-          {result.errors.length > 0 && (
-            <div style={{ fontSize: '0.8125rem', color: 'var(--gray-600)' }}>
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>Row errors:</div>
-              {result.errors.map(e => (
-                <div key={e.row} style={{ padding: '4px 0', borderBottom: '1px solid var(--border-color)' }}>
-                  Row {e.row}: {e.error}
-                </div>
-              ))}
+          {result.issues.length > 0 && (
+            <div>
+              <div style={{ fontWeight: 600, marginBottom: 6, fontSize: '0.8125rem', color: 'var(--gray-600)' }}>
+                What happened, row by row:
+              </div>
+              <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 8 }}>
+                {result.issues.map((issue, i) => {
+                  const s = ISSUE_STYLE[issue.level];
+                  return (
+                    <div
+                      key={`${issue.row}-${i}`}
+                      style={{
+                        display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 12px',
+                        borderBottom: i === result.issues.length - 1 ? 'none' : '1px solid var(--border-color)',
+                      }}
+                    >
+                      <span style={{
+                        flexShrink: 0, fontSize: '0.6875rem', fontWeight: 700, padding: '2px 8px',
+                        borderRadius: 4, color: s.color, background: s.bg, whiteSpace: 'nowrap',
+                      }}>
+                        {s.label}
+                      </span>
+                      <div style={{ fontSize: '0.8125rem', color: 'var(--gray-700)' }}>
+                        <span style={{ fontWeight: 600 }}>Row {issue.row}</span>
+                        {issue.title && <span style={{ color: 'var(--gray-400)' }}> · {issue.title}</span>}
+                        <div style={{ color: 'var(--gray-600)', marginTop: 1 }}>{issue.message}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>

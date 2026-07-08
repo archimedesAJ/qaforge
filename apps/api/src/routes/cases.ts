@@ -349,19 +349,36 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
 
     let imported = 0;
     let skipped  = 0;
-    const errors: { row: number; error: string }[] = [];
+    let warnings = 0;
+    const issues: { row: number; title?: string; level: 'error' | 'skipped' | 'warning'; message: string }[] = [];
 
     for (let i = 0; i < rows.length; i++) {
       const row    = rows[i];
       const rowNum = i + 2;
 
       const title = row['title']?.trim();
-      if (!title) { errors.push({ row: rowNum, error: 'Missing title' }); continue; }
+      if (!title) { issues.push({ row: rowNum, level: 'error', message: 'Missing title — this column is required' }); continue; }
 
-      if (existingTitles.has(title.toLowerCase())) { skipped++; continue; }
+      if (existingTitles.has(title.toLowerCase())) {
+        skipped++;
+        issues.push({ row: rowNum, title, level: 'skipped', message: `Duplicate title — a test case named "${title}" already exists in this project` });
+        continue;
+      }
 
-      const type         = VALID_TYPES.has(row['type'] ?? '')     ? row['type']     : 'manual';
-      const priority     = VALID_PRIOS.has(row['priority'] ?? '') ? row['priority'] : 'p2';
+      const rawType = row['type']?.trim();
+      if (rawType && !VALID_TYPES.has(rawType)) {
+        warnings++;
+        issues.push({ row: rowNum, title, level: 'warning', message: `Unrecognized type "${rawType}" — defaulted to "manual"` });
+      }
+      const type = rawType && VALID_TYPES.has(rawType) ? rawType : 'manual';
+
+      const rawPriority = row['priority']?.trim();
+      if (rawPriority && !VALID_PRIOS.has(rawPriority)) {
+        warnings++;
+        issues.push({ row: rowNum, title, level: 'warning', message: `Unrecognized priority "${rawPriority}" — defaulted to "p2"` });
+      }
+      const priority = rawPriority && VALID_PRIOS.has(rawPriority) ? rawPriority : 'p2';
+
       const tags         = row['tags']  ? row['tags'].split(',').map((t: string) => t.trim()).filter(Boolean) : [];
       const preconditions = (row['preconditions'] ?? row['precondition'])?.trim() || undefined;
       let suiteId: string | undefined;
@@ -385,7 +402,12 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
       const VALID_FRAMEWORKS = new Set(['Playwright', 'Cypress', 'Selenium', 'WebdriverIO', 'Appium']);
       let stepsData: unknown;
       if (type === 'ui_auto') {
-        const framework = VALID_FRAMEWORKS.has(row['framework'] ?? '') ? row['framework'] : 'Playwright';
+        const rawFramework = row['framework']?.trim();
+        if (rawFramework && !VALID_FRAMEWORKS.has(rawFramework)) {
+          warnings++;
+          issues.push({ row: rowNum, title, level: 'warning', message: `Unrecognized framework "${rawFramework}" — defaulted to "Playwright"` });
+        }
+        const framework = rawFramework && VALID_FRAMEWORKS.has(rawFramework) ? rawFramework : 'Playwright';
         stepsData = {
           framework,
           scriptPath:  row['script_path']?.trim() ?? '',
@@ -405,11 +427,11 @@ export const casesRoutes: FastifyPluginAsync = async (app) => {
         existingTitles.add(title.toLowerCase()); // prevent in-file duplicates too
         imported++;
       } catch (err) {
-        errors.push({ row: rowNum, error: String(err) });
+        issues.push({ row: rowNum, title, level: 'error', message: String(err) });
       }
     }
 
-    return reply.code(201).send({ imported, skipped, errors });
+    return reply.code(201).send({ imported, skipped, warnings, issues });
   });
 
   // GET /projects/:projectId/cases/export — download active cases as Excel — viewer+
