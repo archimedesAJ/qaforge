@@ -28,7 +28,7 @@ interface RunResult {
   attachments?: Array<{ type: string; url: string }>;
   executedAt: string;
   testCase?: { title: string; type: string; priority?: string };
-  defect?: Defect | null;
+  defects: Defect[];
 }
 
 const TRACKER_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
@@ -532,86 +532,78 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
                   }}>▾</div>
                 </div>
 
-                {/* Defect row — visible on failed results only */}
+                {/* Defect row(s) — visible on failed results only */}
                 {result.status === 'fail' && (
                   <div style={{
                     padding: '6px 16px 8px 56px',
                     borderTop: '1px solid var(--border-color)',
-                    display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-                    background: result.defect ? '#FFFBEB' : 'transparent',
+                    background: result.defects.length > 0 ? '#FFFBEB' : 'transparent',
                   }}>
-                    {result.defect ? (
-                      <>
-                        {/* Tracker badge */}
-                        {(() => {
-                          const tc = TRACKER_CONFIG[result.defect.tracker] ?? TRACKER_CONFIG.internal;
-                          return (
-                            <span style={{
-                              padding: '2px 8px', borderRadius: 4, fontSize: '0.75rem', fontWeight: 600,
-                              color: tc.color, background: tc.bg,
-                            }}>
-                              {tc.label}
-                            </span>
-                          );
-                        })()}
-                        {/* Title / external ref */}
-                        {result.defect.externalRef && result.defect.externalRef.startsWith('http') ? (
-                          <a href={result.defect.externalRef} target="_blank" rel="noopener noreferrer"
-                            style={{ fontSize: '0.8125rem', color: 'var(--color-primary)', fontWeight: 500, textDecoration: 'none' }}
-                            onClick={e => e.stopPropagation()}
-                          >
-                            {result.defect.title || result.defect.externalRef} ↗
-                          </a>
-                        ) : (
-                          <span style={{ fontSize: '0.8125rem', color: 'var(--gray-700)', fontWeight: 500 }}>
-                            {result.defect.title}
-                            {result.defect.externalRef && (
-                              <span style={{ marginLeft: 6, fontSize: '0.75rem', fontWeight: 400, color: 'var(--gray-400)' }}>
-                                {result.defect.externalRef}
-                              </span>
-                            )}
+                    {result.defects.map(defect => {
+                      const tc = TRACKER_CONFIG[defect.tracker] ?? TRACKER_CONFIG.internal;
+                      const sc = STATUS_CONFIG_DEFECT[defect.status] ?? STATUS_CONFIG_DEFECT.open;
+                      return (
+                        <div key={defect.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '3px 0' }}>
+                          {/* Tracker badge */}
+                          <span style={{
+                            padding: '2px 8px', borderRadius: 4, fontSize: '0.75rem', fontWeight: 600,
+                            color: tc.color, background: tc.bg,
+                          }}>
+                            {tc.label}
                           </span>
-                        )}
-                        {/* Status chip */}
-                        {(() => {
-                          const sc = STATUS_CONFIG_DEFECT[result.defect!.status] ?? STATUS_CONFIG_DEFECT.open;
-                          return (
-                            <span style={{
-                              padding: '2px 8px', borderRadius: 20, fontSize: '0.75rem', fontWeight: 600,
-                              color: sc.color, background: sc.bg,
-                            }}>
-                              {sc.label}
+                          {/* Title / external ref */}
+                          {defect.externalRef && defect.externalRef.startsWith('http') ? (
+                            <a href={defect.externalRef} target="_blank" rel="noopener noreferrer"
+                              style={{ fontSize: '0.8125rem', color: 'var(--color-primary)', fontWeight: 500, textDecoration: 'none' }}
+                              onClick={e => e.stopPropagation()}
+                            >
+                              {defect.title || defect.externalRef} ↗
+                            </a>
+                          ) : (
+                            <span style={{ fontSize: '0.8125rem', color: 'var(--gray-700)', fontWeight: 500 }}>
+                              {defect.title}
+                              {defect.externalRef && (
+                                <span style={{ marginLeft: 6, fontSize: '0.75rem', fontWeight: 400, color: 'var(--gray-400)' }}>
+                                  {defect.externalRef}
+                                </span>
+                              )}
                             </span>
-                          );
-                        })()}
-                        {/* Actions */}
-                        <button onClick={e => {
-                          e.stopPropagation();
-                          const d = result.defect!;
-                          setEditingDefect({ defect: d, resultId: result.id });
-                          setDefectStatus(d.status);
-                          setDefectRef(d.externalRef ?? '');
-                          setDefectNotes(d.notes ?? '');
-                        }}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8125rem', color: 'var(--gray-500)', padding: '2px 4px' }}>
-                          Edit
-                        </button>
-                        <button onClick={e => { e.stopPropagation(); setConfirmRemoveDefectId(result.defect!.id); }}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8125rem', color: '#DC2626', padding: '2px 4px' }}>
-                          Remove
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        onClick={e => { e.stopPropagation(); setFilingFor(result); setDefectTitle(result.testCase?.title ?? ''); setDefectTracker('jira'); setDefectRef(''); setDefectNotes(''); setDefectAttachments([]); setDefectError(''); }}
-                        style={{
-                          background: 'none', border: '1px dashed var(--border-color)', borderRadius: 5,
-                          color: 'var(--gray-400)', fontSize: '0.8125rem', padding: '3px 10px', cursor: 'pointer',
-                        }}
-                      >
-                        + File defect
-                      </button>
-                    )}
+                          )}
+                          {/* Status chip */}
+                          <span style={{
+                            padding: '2px 8px', borderRadius: 20, fontSize: '0.75rem', fontWeight: 600,
+                            color: sc.color, background: sc.bg,
+                          }}>
+                            {sc.label}
+                          </span>
+                          {/* Actions */}
+                          <button onClick={e => {
+                            e.stopPropagation();
+                            setEditingDefect({ defect, resultId: result.id });
+                            setDefectStatus(defect.status);
+                            setDefectRef(defect.externalRef ?? '');
+                            setDefectNotes(defect.notes ?? '');
+                          }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8125rem', color: 'var(--gray-500)', padding: '2px 4px' }}>
+                            Edit
+                          </button>
+                          <button onClick={e => { e.stopPropagation(); setConfirmRemoveDefectId(defect.id); }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8125rem', color: '#DC2626', padding: '2px 4px' }}>
+                            Remove
+                          </button>
+                        </div>
+                      );
+                    })}
+                    <button
+                      onClick={e => { e.stopPropagation(); setFilingFor(result); setDefectTitle(result.testCase?.title ?? ''); setDefectTracker('jira'); setDefectRef(''); setDefectNotes(''); setDefectAttachments([]); setDefectError(''); }}
+                      style={{
+                        background: 'none', border: '1px dashed var(--border-color)', borderRadius: 5,
+                        color: 'var(--gray-400)', fontSize: '0.8125rem', padding: '3px 10px', cursor: 'pointer',
+                        marginTop: result.defects.length > 0 ? 4 : 0,
+                      }}
+                    >
+                      {result.defects.length > 0 ? '+ File another defect' : '+ File defect'}
+                    </button>
                   </div>
                 )}
 

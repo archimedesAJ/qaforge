@@ -202,7 +202,7 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
       orderBy: { executedAt: 'asc' },
       include: {
         testCase: { select: { seqId: true, title: true, type: true } },
-        defect: true,
+        defects: true,
       },
     });
     return { results };

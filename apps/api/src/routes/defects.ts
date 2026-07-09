@@ -106,9 +106,6 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
     if (result.run.projectId !== projectId) return reply.code(403).send({ error: 'Forbidden' });
     if (result.status === 'pass') return reply.code(400).send({ error: 'Cannot file a defect against a passing result' });
 
-    const existing = await prisma.defect.findUnique({ where: { runResultId: result.id } });
-    if (existing) return reply.code(409).send({ error: 'A defect is already filed for this result' });
-
     const defect = await prisma.defect.create({
       data: {
         projectId,
