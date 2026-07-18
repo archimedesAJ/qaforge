@@ -416,6 +416,32 @@ function BulkDefectUploadModal({ projectId, onClose, onImported }: {
         title,tracker,severity,status,externalRef,notes
       </div>
       {!result && <input type="file" accept=".csv,text/csv" onChange={e => { setFile(e.target.files?.[0] ?? null); setError(''); }} style={{ display: 'block', width: '100%', marginBottom: 14 }} />}
+      {!result && (
+        <button
+          type="button"
+          style={{
+            background: 'none', border: 'none', padding: 0, marginBottom: 14,
+            cursor: 'pointer', fontSize: '0.8125rem', color: 'var(--color-primary)',
+          }}
+          onClick={() => {
+            const csv = [
+              'title,tracker,severity,status,externalRef,notes',
+              '"Checkout fails with valid card","jira","high","open","QA-102","Payment fails with a valid Visa card"',
+              '"Account balance is not updated","internal","critical","open","","Balance remains unchanged after a successful transfer"',
+              '"Submit button overlaps footer","github","low","in_progress","https://github.com/example/repo/issues/45","Visible on mobile screens below 390px"',
+              '',
+            ].join('\n');
+            const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = 'qaforge-defect-import-template.csv';
+            anchor.click();
+            URL.revokeObjectURL(url);
+          }}
+        >
+          Download template CSV
+        </button>
+      )}
       {error && <Alert type="error">{error}</Alert>}
       {result && <>
         <Alert type={result.failed ? 'info' : 'success'}>
