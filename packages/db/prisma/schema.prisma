@@ -53,9 +53,10 @@ model Project {
 }
 
 model ProjectMember {
-  projectId String
-  userId    String
-  role      String   @default("editor") // admin | editor | viewer
+  projectId            String
+  userId               String
+  role                 String   @default("editor") // admin | manager | editor | viewer
+  canBulkUploadDefects Boolean  @default(false)
 
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)

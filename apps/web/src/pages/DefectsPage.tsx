@@ -62,10 +62,11 @@ const SEVERITY_OPTIONS = Object.entries(SEVERITY_CONFIG).map(([v, c]) => ({ valu
 export function DefectsPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const qc = useQueryClient();
-  const { isEditor } = useProjectRole(projectId);
+  const { isEditor, canBulkUploadDefects } = useProjectRole(projectId);
   const [statusFilter, setStatusFilter]       = useState('');
   const [updatingId, setUpdatingId]           = useState<string | null>(null);
   const [showCreate, setShowCreate]           = useState(false);
+  const [showBulkUpload, setShowBulkUpload]   = useState(false);
   const [editingDefect, setEditingDefect]     = useState<Defect | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
@@ -108,7 +109,12 @@ export function DefectsPage() {
       <div style={{ maxWidth: 900, margin: '0 auto' }}>
 
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 16 }}>
+          {canBulkUploadDefects && (
+            <Button variant="secondary" size="sm" onClick={() => setShowBulkUpload(true)}>
+              Bulk upload
+            </Button>
+          )}
           {isEditor && (
             <Button variant="primary" size="sm" onClick={() => setShowCreate(true)}>
               + New defect
@@ -322,6 +328,14 @@ export function DefectsPage() {
       </div>
 
       {/* Create standalone defect modal */}
+      {showBulkUpload && projectId && (
+        <BulkDefectUploadModal
+          projectId={projectId}
+          onClose={() => setShowBulkUpload(false)}
+          onImported={() => qc.invalidateQueries({ queryKey: ['defects', projectId] })}
+        />
+      )}
+
       {showCreate && projectId && (
         <CreateDefectModal
           projectId={projectId}
@@ -355,6 +369,65 @@ export function DefectsPage() {
         onCancel={() => setConfirmDeleteId(null)}
       />
     </AppLayout>
+  );
+}
+
+interface BulkImportResult {
+  imported: number;
+  failed: number;
+  total: number;
+  issues: { row: number; title?: string; message: string }[];
+}
+
+function BulkDefectUploadModal({ projectId, onClose, onImported }: {
+  projectId: string;
+  onClose: () => void;
+  onImported: () => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [result, setResult] = useState<BulkImportResult | null>(null);
+  const [error, setError] = useState('');
+  const upload = useMutation({
+    mutationFn: async () => {
+      if (!file) throw new Error('Choose a CSV file first.');
+      const form = new FormData();
+      form.append('file', file);
+      return api.upload<BulkImportResult>(`projects/${projectId}/defects/import/csv`, form);
+    },
+    onSuccess: value => { setResult(value); setError(''); onImported(); },
+    onError: (err: Error) => setError(err.message),
+  });
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Bulk upload defects"
+      footer={<>
+        <Button variant="secondary" onClick={onClose}>{result ? 'Close' : 'Cancel'}</Button>
+        {!result && <Button variant="primary" loading={upload.isPending} onClick={() => upload.mutate()}>Upload defects</Button>}
+      </>}
+    >
+      <p style={{ marginTop: 0, fontSize: '0.875rem', color: 'var(--gray-600)', lineHeight: 1.5 }}>
+        Upload up to 1,000 defects as CSV. <code>title</code> is required. Optional columns are
+        <code> tracker</code>, <code>severity</code>, <code>status</code>, <code>externalRef</code>, and <code>notes</code>.
+      </p>
+      <div style={{ padding: 10, marginBottom: 14, borderRadius: 6, background: 'var(--gray-50)', border: '1px solid var(--border-color)', fontFamily: 'monospace', fontSize: '0.75rem', overflowX: 'auto' }}>
+        title,tracker,severity,status,externalRef,notes
+      </div>
+      {!result && <input type="file" accept=".csv,text/csv" onChange={e => { setFile(e.target.files?.[0] ?? null); setError(''); }} style={{ display: 'block', width: '100%', marginBottom: 14 }} />}
+      {error && <Alert type="error">{error}</Alert>}
+      {result && <>
+        <Alert type={result.failed ? 'info' : 'success'}>
+          Imported {result.imported} of {result.total} defects. {result.failed ? `${result.failed} rows failed.` : 'All rows imported successfully.'}
+        </Alert>
+        {result.issues.length > 0 && <div style={{ marginTop: 12, maxHeight: 220, overflowY: 'auto', fontSize: '0.8125rem' }}>
+          {result.issues.map(issue => <div key={`${issue.row}-${issue.message}`} style={{ padding: '6px 0', borderBottom: '1px solid var(--border-color)' }}>
+            <strong>Row {issue.row}{issue.title ? ` — ${issue.title}` : ''}:</strong> {issue.message}
+          </div>)}
+        </div>}
+      </>}
+    </Modal>
   );
 }
 

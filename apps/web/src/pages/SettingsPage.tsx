@@ -14,6 +14,7 @@ type ProjectStage    = 'live' | 'in_development' | 'new';
 interface Member {
   userId: string;
   role: string;
+  canBulkUploadDefects: boolean;
   user: { id: string; email: string; name: string };
 }
 
@@ -287,6 +288,13 @@ function TeamTab({ projectId }: { projectId: string }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['project', projectId] }),
   });
 
+  const changePermission = useMutation({
+    mutationFn: ({ memberId, canBulkUploadDefects }: { memberId: string; canBulkUploadDefects: boolean }) =>
+      api.patch(`projects/${projectId}/members/${memberId}/permissions`, { canBulkUploadDefects }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['project', projectId] }),
+    onError: (err: Error) => setError(err.message),
+  });
+
   const remove = useMutation({
     mutationFn: (userId: string) => api.delete(`projects/${projectId}/members/${userId}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['project', projectId] }),
@@ -448,6 +456,18 @@ function TeamTab({ projectId }: { projectId: string }) {
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 500, fontSize: '0.9rem' }}>{m.user.name || m.user.email}</div>
             <div style={{ fontSize: '0.8125rem', color: 'var(--gray-400)' }}>{m.user.email}</div>
+            <label style={{
+              display: 'flex', alignItems: 'center', gap: 6, marginTop: 5,
+              fontSize: '0.75rem', color: 'var(--gray-500)', cursor: isAdmin ? 'pointer' : 'default',
+            }}>
+              <input
+                type="checkbox"
+                checked={m.canBulkUploadDefects}
+                disabled={!isAdmin || !['editor', 'manager', 'admin'].includes(m.role) || changePermission.isPending}
+                onChange={e => changePermission.mutate({ memberId: m.userId, canBulkUploadDefects: e.target.checked })}
+              />
+              Bulk defect upload
+            </label>
           </div>
           {isAdmin ? (
             <select

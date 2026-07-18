@@ -4,7 +4,7 @@ import { api } from '../lib/api';
 import { useAuthStore } from '../store/auth';
 
 interface ProjectDetail {
-  members: { userId: string; role: string }[];
+  members: { userId: string; role: string; canBulkUploadDefects: boolean }[];
 }
 
 const ROLE_RANK: Record<string, number> = {
@@ -31,6 +31,7 @@ export function useProjectRole(projectId: string | undefined) {
     : (data?.members.find(m => m.userId === user?.id)?.role
         ?? projectRoles[projectId ?? '']
         ?? null);
+  const membership = data?.members.find(m => m.userId === user?.id);
 
   useEffect(() => {
     if (role && projectId && !isSystemAdmin) setProjectRole(projectId, role);
@@ -43,5 +44,8 @@ export function useProjectRole(projectId: string | undefined) {
     isEditor:   isSystemAdmin || (!!role && ROLE_RANK[role] >= ROLE_RANK['editor']),
     isViewer:   isSystemAdmin || !!role,
     canExecute: isSystemAdmin || role === 'editor' || role === 'admin',
+    canBulkUploadDefects: isSystemAdmin || (
+      !!role && ROLE_RANK[role] >= ROLE_RANK.editor && membership?.canBulkUploadDefects === true
+    ),
   };
 }

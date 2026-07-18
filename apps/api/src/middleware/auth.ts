@@ -87,3 +87,26 @@ export function requireRole(min: keyof typeof ROLE_RANK) {
     }
   };
 }
+
+/** Require a project-scoped capability granted directly to a member. */
+export function requireProjectCapability(capability: 'canBulkUploadDefects') {
+  return async (req: FastifyRequest, reply: FastifyReply) => {
+    const extended = req as FastifyRequest & { isApiKey?: boolean; isSystemAdmin?: boolean };
+    if (extended.isSystemAdmin) return;
+    if (extended.isApiKey) {
+      return reply.code(403).send({ error: 'API keys cannot perform this action' });
+    }
+
+    const { userId } = req.user as { userId: string };
+    const { projectId } = req.params as { projectId?: string };
+    if (!projectId) return reply.code(400).send({ error: 'Project is required' });
+
+    const member = await prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId } },
+      select: { role: true, [capability]: true },
+    });
+    if (!member || ROLE_RANK[member.role] < ROLE_RANK.editor || !member[capability]) {
+      return reply.code(403).send({ error: 'Bulk defect upload permission is required' });
+    }
+  };
+}

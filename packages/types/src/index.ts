@@ -150,6 +150,7 @@ export interface ProjectMember {
   projectId: string;
   userId: string;
   role: MemberRole;
+  canBulkUploadDefects: boolean;
   user: Pick<User, 'id' | 'email' | 'name'>;
 }
 

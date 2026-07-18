@@ -255,11 +255,43 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
 
     await prisma.projectMember.update({
       where: { projectId_userId: { projectId, userId: memberId } },
-      data: { role },
+      data: {
+        role,
+        // A viewer must never retain an actionable editor-level capability.
+        ...(role === 'viewer' && { canBulkUploadDefects: false }),
+      },
     });
 
     logActivity({ userId, isSystemAdmin, projectId, action: 'member_role_changed', entityType: 'member', entityId: memberId });
 
+    return { updated: true };
+  });
+
+  // PATCH /projects/:projectId/members/:memberId/permissions — grant member-specific capabilities
+  app.patch('/:projectId/members/:memberId/permissions', { preHandler: requireRole('admin') }, async (req, reply) => {
+    const { projectId, memberId } = req.params as { projectId: string; memberId: string };
+    const { userId } = req.user as { userId: string };
+    const { isSystemAdmin } = req as { isSystemAdmin?: boolean };
+    const body = z.object({ canBulkUploadDefects: z.boolean() }).parse(req.body);
+
+    const member = await prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId: memberId } },
+      select: { role: true },
+    });
+    if (!member) return reply.code(404).send({ error: 'Project member not found' });
+    if (body.canBulkUploadDefects && !['editor', 'manager', 'admin'].includes(member.role)) {
+      return reply.code(400).send({ error: 'Bulk defect upload can only be granted to editor-level members' });
+    }
+
+    await prisma.projectMember.update({
+      where: { projectId_userId: { projectId, userId: memberId } },
+      data: body,
+    });
+    logActivity({
+      userId, isSystemAdmin, projectId,
+      action: body.canBulkUploadDefects ? 'member_permission_granted' : 'member_permission_revoked',
+      entityType: 'member', entityId: memberId, entityName: 'Bulk defect upload',
+    });
     return { updated: true };
   });
 
