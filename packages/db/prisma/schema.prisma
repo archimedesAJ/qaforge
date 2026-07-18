@@ -309,15 +309,18 @@ model ActivityLog {
 }
 
 model ExploratorySession {
-  id         String    @id @default(uuid())
-  runId      String    @unique
-  charter    String
-  testerId   String
-  startedAt  DateTime  @default(now())
-  endedAt    DateTime?
-  sessionLog Json?
-  debrief    String?
-  verdict    String?   // thorough | partial | incomplete
+  id                  String    @id @default(uuid())
+  runId               String    @unique
+  charter             String
+  area                String?
+  riskFocus           String?
+  plannedDurationMins Int?
+  testerId            String
+  startedAt           DateTime  @default(now())
+  endedAt             DateTime?
+  sessionLog          Json?
+  debrief             String?
+  verdict             String?   // thorough | partial | incomplete
 
   run TestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 }

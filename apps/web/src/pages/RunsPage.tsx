@@ -10,11 +10,12 @@ import { ApiRunner } from '../components/runner/ApiRunner';
 import { AutoResultsViewer } from '../components/runner/AutoResultsViewer';
 import { JUnitIngest } from '../components/runner/JUnitIngest';
 import { PerfIngest } from '../components/runner/PerfIngest';
+import { ExploratoryRunWorkspace } from '../components/runner/ExploratoryRunWorkspace';
 import { api } from '../lib/api';
 import { useProjectRole } from '../hooks/useProjectRole';
 import type { TestRun, TestCase, TestType } from '@qaforge/types';
 
-type View = 'list' | 'create' | 'select-cases' | 'execute' | 'results' | 'run' | 'junit-ingest' | 'perf-ingest';
+type View = 'list' | 'create' | 'create-exploratory' | 'select-cases' | 'execute' | 'explore' | 'results' | 'run' | 'junit-ingest' | 'perf-ingest';
 
 interface RunCase {
   id: number;
@@ -51,6 +52,12 @@ export function RunsPage() {
   const [runEnv, setRunEnv] = useState('staging');
   const [runPlanId, setRunPlanId] = useState('');
   const [createError, setCreateError] = useState('');
+  const [exploreName, setExploreName] = useState('');
+  const [exploreEnv, setExploreEnv] = useState('staging');
+  const [exploreCharter, setExploreCharter] = useState('');
+  const [exploreArea, setExploreArea] = useState('');
+  const [exploreRisk, setExploreRisk] = useState('');
+  const [exploreDuration, setExploreDuration] = useState('60');
 
   // Case picker / execute state
   const [pendingRun, setPendingRun] = useState<TestRun | null>(null);
@@ -128,6 +135,21 @@ export function RunsPage() {
     onError: (err: Error) => setCreateError(err.message),
   });
 
+  const createExploratoryRun = useMutation({
+    mutationFn: () => api.post<TestRun>(`projects/${projectId}/runs/exploratory`, {
+      name: exploreName.trim(), env: exploreEnv, charter: exploreCharter.trim(),
+      area: exploreArea.trim() || undefined,
+      riskFocus: exploreRisk.trim() || undefined,
+      plannedDurationMins: Number(exploreDuration) || undefined,
+    }),
+    onSuccess: run => {
+      qc.invalidateQueries({ queryKey: ['runs', projectId] });
+      setPendingRun(run);
+      setView('explore');
+    },
+    onError: (err: Error) => setCreateError(err.message),
+  });
+
   const markStatus = useMutation({
     mutationFn: ({ caseId, status, note }: { caseId: string; status: string; note?: string }) =>
       api.put(`projects/${projectId}/runs/${pendingRun!.id}/cases/${caseId}/status`, { status, note }),
@@ -188,7 +210,12 @@ export function RunsPage() {
 
   function handleRunComplete() {
     qc.invalidateQueries({ queryKey: ['run-cases', pendingRun?.id] });
-    setView('execute');
+    if (activeRun?.source === 'exploratory') {
+      qc.invalidateQueries({ queryKey: ['exploratory-run', activeRun.id] });
+      setView('explore');
+    } else {
+      setView('execute');
+    }
     setActiveCase(null);
   }
 
@@ -242,7 +269,7 @@ export function RunsPage() {
               runId={activeRun.id}
               testCase={activeCase}
               onComplete={handleRunComplete}
-              onCancel={() => setView('execute')}
+              onCancel={() => setView(activeRun.source === 'exploratory' ? 'explore' : 'execute')}
             />
           ) : isApi ? (
             <ApiRunner
@@ -250,7 +277,7 @@ export function RunsPage() {
               runId={activeRun.id}
               testCase={activeCase}
               onComplete={handleRunComplete}
-              onCancel={() => setView('execute')}
+              onCancel={() => setView(activeRun.source === 'exploratory' ? 'explore' : 'execute')}
             />
           ) : (
             <ManualRunner
@@ -258,10 +285,29 @@ export function RunsPage() {
               runId={activeRun.id}
               testCase={activeCase}
               onComplete={handleRunComplete}
-              onCancel={() => setView('execute')}
+              onCancel={() => setView(activeRun.source === 'exploratory' ? 'explore' : 'execute')}
             />
           )}
         </div>
+      </AppLayout>
+    );
+  }
+
+  // ── Dynamic exploratory workspace ─────────────────────────
+  if (view === 'explore' && pendingRun) {
+    return (
+      <AppLayout title="Exploratory session">
+        <ExploratoryRunWorkspace
+          projectId={projectId!}
+          run={pendingRun}
+          onExecute={testCase => {
+            setActiveRun(pendingRun);
+            setActiveCase(testCase);
+            setView('run');
+          }}
+          onBack={() => { setPendingRun(null); setView('list'); }}
+          onClosed={() => { setPendingRun(null); setView('list'); }}
+        />
       </AppLayout>
     );
   }
@@ -986,7 +1032,12 @@ export function RunsPage() {
   return (
     <AppLayout
       title="Runs"
-      actions={canExecute && <Button variant="primary" size="sm" onClick={() => { setRunName(''); setRunPlanId(''); setCreateError(''); setSelectedCaseIds(new Set()); setView('create'); }}>+ New run</Button>}
+      actions={canExecute && <div style={{ display: 'flex', gap: 8 }}>
+        <Button variant="secondary" size="sm" onClick={() => {
+          setExploreName(''); setExploreEnv('staging'); setExploreCharter(''); setExploreArea(''); setExploreRisk(''); setExploreDuration('60'); setCreateError(''); setView('create-exploratory');
+        }}>✦ Exploratory run</Button>
+        <Button variant="primary" size="sm" onClick={() => { setRunName(''); setRunPlanId(''); setCreateError(''); setSelectedCaseIds(new Set()); setView('create'); }}>+ New run</Button>
+      </div>}
     >
       <div style={{ maxWidth: 900, margin: '0 auto' }}>
 
@@ -1057,7 +1108,7 @@ export function RunsPage() {
                       {run.status === 'open' && canExecute && (
                         <Button
                           variant="primary" size="sm"
-                          onClick={() => { setPendingRun(run); setPickerSuiteId(null); setCaseSearch(''); setStatusFilter('all'); setView('execute'); }}
+                          onClick={() => { setPendingRun(run); setPickerSuiteId(null); setCaseSearch(''); setStatusFilter('all'); setView(run.source === 'exploratory' ? 'explore' : 'execute'); }}
                           style={{ fontSize: '0.8125rem' }}
                         >
                           Continue ▶
@@ -1142,6 +1193,35 @@ export function RunsPage() {
               .map(p => ({ value: p.id, label: p.milestone ? `${p.name} (${p.milestone})` : p.name })),
           ]}
         />
+      </Modal>
+
+      <Modal
+        open={view === 'create-exploratory'}
+        onClose={() => setView('list')}
+        title="Start exploratory run"
+        footer={<>
+          <Button variant="secondary" onClick={() => setView('list')}>Cancel</Button>
+          <Button variant="primary" loading={createExploratoryRun.isPending} onClick={() => {
+            setCreateError('');
+            if (!exploreName.trim()) { setCreateError('Run name is required'); return; }
+            if (!exploreCharter.trim()) { setCreateError('Charter is required'); return; }
+            createExploratoryRun.mutate();
+          }}>Start session</Button>
+        </>}
+      >
+        {createError && <div style={{ marginBottom: 14 }}><Alert type="error">{createError}</Alert></div>}
+        <div style={{ padding: '8px 12px', background: 'var(--color-primary-light)', border: '1px solid #bfdbfe', borderRadius: 6, marginBottom: 16, fontSize: '0.8125rem', color: 'var(--color-primary)' }}>
+          Add new test cases and execute them continuously while you explore.
+        </div>
+        <Input label="Session name" value={exploreName} onChange={event => setExploreName(event.target.value)} placeholder="e.g. Guest checkout exploration" autoFocus />
+        <Select label="Environment" value={exploreEnv} onChange={event => setExploreEnv(event.target.value)} options={[
+          { value: 'staging', label: 'Staging' }, { value: 'production', label: 'Production' }, { value: 'local', label: 'Local' }, { value: 'dev', label: 'Dev' },
+        ]} />
+        <label className="label">Charter</label>
+        <textarea className="input" rows={3} value={exploreCharter} onChange={event => setExploreCharter(event.target.value)} placeholder="What should this session explore and learn?" style={{ resize: 'vertical', marginBottom: 14 }} />
+        <Input label="Area or feature (optional)" value={exploreArea} onChange={event => setExploreArea(event.target.value)} placeholder="e.g. Payments / guest checkout" />
+        <Input label="Risk focus (optional)" value={exploreRisk} onChange={event => setExploreRisk(event.target.value)} placeholder="e.g. Duplicate charges and recovery paths" />
+        <Input label="Planned duration in minutes" type="number" value={exploreDuration} onChange={event => setExploreDuration(event.target.value)} />
       </Modal>
     </AppLayout>
   );

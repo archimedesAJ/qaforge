@@ -14,6 +14,23 @@ const CreateRunSchema = z.object({
   caseIds: z.array(z.string().uuid()).optional(),
 });
 
+const CreateExploratoryRunSchema = z.object({
+  name: z.string().min(1).max(200),
+  env: z.string().min(1).max(100),
+  charter: z.string().min(1).max(3000),
+  area: z.string().max(500).optional(),
+  riskFocus: z.string().max(1000).optional(),
+  plannedDurationMins: z.number().int().min(5).max(480).optional(),
+});
+
+const CreateExploratoryCaseSchema = z.object({
+  title: z.string().min(1).max(500),
+  priority: z.enum(['p0', 'p1', 'p2', 'p3']).default('p2'),
+  preconditions: z.string().max(3000).optional(),
+  action: z.string().max(3000).optional(),
+  expected: z.string().max(3000).optional(),
+});
+
 const ResultSchema = z.object({
   testCaseId: z.string().uuid(),
   status: z.enum(['pass', 'fail', 'blocked', 'skipped', 'not_applicable']),
@@ -56,6 +73,113 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
     logActivity({ userId, isSystemAdmin, projectId, action: 'run_started', entityType: 'run', entityId: run.id, entityName: run.name });
 
     return reply.code(201).send(run);
+  });
+
+  // POST /projects/:projectId/runs/exploratory — start a session with no pre-authored cases
+  app.post('/:projectId/runs/exploratory', { preHandler: requireRole('editor') }, async (req, reply) => {
+    const { projectId } = req.params as { projectId: string };
+    const { userId } = req.user as { userId: string };
+    const { isSystemAdmin } = req as { isSystemAdmin?: boolean };
+    const body = CreateExploratoryRunSchema.parse(req.body);
+
+    const run = await prisma.testRun.create({
+      data: {
+        projectId,
+        name: body.name.trim(),
+        env: body.env.trim(),
+        source: 'exploratory',
+        triggeredBy: userId,
+        status: 'open',
+        session: {
+          create: {
+            charter: body.charter.trim(),
+            area: body.area?.trim() || null,
+            riskFocus: body.riskFocus?.trim() || null,
+            plannedDurationMins: body.plannedDurationMins,
+            testerId: userId,
+            sessionLog: [],
+          },
+        },
+      },
+      include: { session: true },
+    });
+
+    logActivity({ userId, isSystemAdmin, projectId, action: 'exploratory_session_started', entityType: 'run', entityId: run.id, entityName: run.name });
+    return reply.code(201).send(run);
+  });
+
+  // GET /projects/:projectId/runs/:runId/exploratory — live session workspace data
+  app.get('/:projectId/runs/:runId/exploratory', { preHandler: requireRole('viewer') }, async (req, reply) => {
+    const { projectId, runId } = req.params as { projectId: string; runId: string };
+    const run = await prisma.testRun.findFirst({
+      where: { id: runId, projectId, source: 'exploratory' },
+      include: {
+        session: true,
+        runCases: {
+          include: {
+            testCase: {
+              select: { id: true, seqId: true, title: true, type: true, priority: true, suiteId: true, steps: true, tags: true, preconditions: true },
+            },
+          },
+          orderBy: { id: 'asc' },
+        },
+      },
+    });
+    if (!run) return reply.code(404).send({ error: 'Exploratory run not found' });
+    return run;
+  });
+
+  // POST /projects/:projectId/runs/:runId/exploratory/cases — design and add a case during execution
+  app.post('/:projectId/runs/:runId/exploratory/cases', { preHandler: requireRole('editor') }, async (req, reply) => {
+    const { projectId, runId } = req.params as { projectId: string; runId: string };
+    const { userId } = req.user as { userId: string };
+    const body = CreateExploratoryCaseSchema.parse(req.body);
+    const run = await prisma.testRun.findFirst({ where: { id: runId, projectId, source: 'exploratory', status: 'open' } });
+    if (!run) return reply.code(404).send({ error: 'Open exploratory run not found' });
+
+    let suite = await prisma.testSuite.findFirst({ where: { projectId, parentId: null, name: 'Exploratory discoveries' } });
+    if (!suite) {
+      suite = await prisma.testSuite.create({ data: { projectId, name: 'Exploratory discoveries' } });
+    }
+    const steps = body.action?.trim()
+      ? [{ order: 1, action: body.action.trim(), expected: body.expected?.trim() || '' }]
+      : [];
+    const testCase = await prisma.testCase.create({
+      data: {
+        projectId,
+        suiteId: suite.id,
+        title: body.title.trim(),
+        type: 'manual',
+        priority: body.priority,
+        preconditions: body.preconditions?.trim() || null,
+        steps,
+        tags: ['exploratory-generated'],
+        createdById: userId,
+      },
+    });
+    await Promise.all([
+      prisma.testCase.update({ where: { id: testCase.id }, data: { lineageId: testCase.id } }),
+      prisma.runCase.create({ data: { runId, testCaseId: testCase.id } }),
+    ]);
+    return reply.code(201).send({ ...testCase, lineageId: testCase.id });
+  });
+
+  // PATCH /projects/:projectId/runs/:runId/exploratory — save the session debrief before close
+  app.patch('/:projectId/runs/:runId/exploratory', { preHandler: requireRole('editor') }, async (req, reply) => {
+    const { projectId, runId } = req.params as { projectId: string; runId: string };
+    const body = z.object({
+      debrief: z.string().max(5000).optional(),
+      verdict: z.enum(['thorough', 'partial', 'incomplete']).optional(),
+    }).parse(req.body);
+    const run = await prisma.testRun.findFirst({ where: { id: runId, projectId, source: 'exploratory' } });
+    if (!run) return reply.code(404).send({ error: 'Exploratory run not found' });
+    return prisma.exploratorySession.update({
+      where: { runId },
+      data: {
+        ...(body.debrief !== undefined && { debrief: body.debrief.trim() || null }),
+        ...(body.verdict !== undefined && { verdict: body.verdict }),
+      },
+    });
   });
 
   // GET /projects/:projectId/runs/:runId/cases — viewer+
@@ -269,7 +393,11 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
     const decided = counts.pass + counts.fail + counts.blocked + counts.skipped;
     const total   = decided + counts.not_run;
     const passRate = decided > 0 ? Math.round((counts.pass / decided) * 100) : 0;
-    await prisma.testRun.update({ where: { id: runId }, data: { status: 'closed', endedAt: new Date() } });
+    const endedAt = new Date();
+    await prisma.testRun.update({ where: { id: runId }, data: { status: 'closed', endedAt } });
+    if (run.source === 'exploratory') {
+      await prisma.exploratorySession.updateMany({ where: { runId }, data: { endedAt } });
+    }
     aggregateOnRunClose(runId, projectId).catch(() => {});
 
     logActivity({ userId, isSystemAdmin, projectId, action: 'run_closed', entityType: 'run', entityId: runId, entityName: run.name });

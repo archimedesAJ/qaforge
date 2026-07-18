@@ -21,7 +21,7 @@ export type ResultStatus =
 
 export type CoverageState = 'healthy' | 'stale' | 'failing';
 export type SessionVerdict = 'thorough' | 'partial' | 'incomplete';
-export type RunSource = 'manual' | 'ci_github' | 'ci_gitlab' | 'ci_jenkins' | 'api';
+export type RunSource = 'manual' | 'exploratory' | 'ci_github' | 'ci_gitlab' | 'ci_jenkins' | 'api';
 export type TrackerType = 'jira' | 'github' | 'linear' | 'internal';
 export type MemberRole = 'admin' | 'manager' | 'editor' | 'viewer';
 export type RunStatus = 'open' | 'closed';
@@ -218,6 +218,9 @@ export interface ExploratorySession {
   id: string;
   runId: string;
   charter: string;
+  area?: string;
+  riskFocus?: string;
+  plannedDurationMins?: number;
   testerId: string;
   startedAt: string;
   endedAt?: string;
