@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '../components/shared/AppLayout';
-import { Alert, Button, EmptyState, Input, Modal, Select, Spinner, StatCard } from '../components/shared/ui';
+import { Alert, Button, ConfirmDialog, EmptyState, Input, Modal, Select, Spinner, StatCard } from '../components/shared/ui';
 import { api } from '../lib/api';
 import { useAuthStore } from '../store/auth';
 
@@ -68,6 +68,7 @@ export function LeadershipReviewsPage() {
   const [showMeeting, setShowMeeting] = useState(false);
   const [viewMeeting, setViewMeeting] = useState<Meeting | null>(null);
   const [editMeeting, setEditMeeting] = useState<Meeting | null>(null);
+  const [confirmDeleteMeeting, setConfirmDeleteMeeting] = useState<Meeting | null>(null);
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [meetingDates, setMeetingDates] = useState(currentMonthRange);
@@ -146,7 +147,7 @@ export function LeadershipReviewsPage() {
         {meetingsQuery.isError && <QueryError message={meetingsQuery.error.message} onRetry={() => meetingsQuery.refetch()} />}
         {!meetingsQuery.isError && meetings.length === 0 && <EmptyState icon="◉" title="No one-on-ones found" description={meetingDates.from || meetingDates.to ? 'No meetings were recorded in the selected date range.' : 'Record the first meeting with an editor direct report.'} action={<Button variant="primary" onClick={() => setShowMeeting(true)}>Record one-on-one</Button>} />}
         {meetings.map(meeting => <div key={meeting.id} style={{ padding: '14px 18px', borderBottom: '1px solid var(--border-color)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}><div style={{ flex: 1 }}><strong>{meeting.report.name}</strong><div style={{ color: 'var(--gray-500)', fontSize: '0.8125rem', marginTop: 3 }}>{new Date(meeting.meetingDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</div></div><Button variant="ghost" size="sm" onClick={() => setViewMeeting(meeting)}>View</Button><Button variant="secondary" size="sm" onClick={() => { setError(''); setEditMeeting(meeting); }}>Edit</Button><Button variant="danger" size="sm" loading={deleteMeeting.isPending && deleteMeeting.variables === meeting.id} onClick={() => { if (window.confirm(`Delete the one-on-one with ${meeting.report.name}? This cannot be undone.`)) deleteMeeting.mutate(meeting.id); }}>Delete</Button></div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}><div style={{ flex: 1 }}><strong>{meeting.report.name}</strong><div style={{ color: 'var(--gray-500)', fontSize: '0.8125rem', marginTop: 3 }}>{new Date(meeting.meetingDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</div></div><Button variant="ghost" size="sm" onClick={() => setViewMeeting(meeting)}>View</Button><Button variant="secondary" size="sm" onClick={() => { setError(''); setEditMeeting(meeting); }}>Edit</Button><Button variant="danger" size="sm" loading={deleteMeeting.isPending && deleteMeeting.variables === meeting.id} onClick={() => { setError(''); setConfirmDeleteMeeting(meeting); }}>Delete</Button></div>
           {meeting.presentationSummary && <div style={{ marginTop: 6, fontSize: '0.875rem', color: 'var(--gray-600)' }}>{meeting.presentationSummary}</div>}
         </div>)}
       </div></>}
@@ -155,6 +156,7 @@ export function LeadershipReviewsPage() {
     {showMeeting && <MeetingFormModal open users={users} usersLoading={usersQuery.isLoading} usersError={usersQuery.isError ? usersQuery.error.message : ''} retryUsers={() => usersQuery.refetch()} error={error} setError={setError} onClose={() => setShowMeeting(false)} onSaved={() => { qc.invalidateQueries({ queryKey: ['leadership-one-on-ones'] }); setShowMeeting(false); setTab('one-on-ones'); }} />}
     {editMeeting && <MeetingFormModal open meeting={editMeeting} users={users} usersLoading={usersQuery.isLoading} usersError={usersQuery.isError ? usersQuery.error.message : ''} retryUsers={() => usersQuery.refetch()} error={error} setError={setError} onClose={() => setEditMeeting(null)} onSaved={() => { qc.invalidateQueries({ queryKey: ['leadership-one-on-ones'] }); setEditMeeting(null); }} />}
     {viewMeeting && <MeetingDetailModal meeting={viewMeeting} onClose={() => setViewMeeting(null)} onEdit={() => { setError(''); setEditMeeting(viewMeeting); setViewMeeting(null); }} />}
+    <ConfirmDialog open={!!confirmDeleteMeeting} title="Delete one-on-one" message={`Permanently delete the one-on-one with ${confirmDeleteMeeting?.report.name ?? 'this direct report'}? This cannot be undone.`} confirmLabel="Delete" onConfirm={() => { if (confirmDeleteMeeting) deleteMeeting.mutate(confirmDeleteMeeting.id); }} onCancel={() => setConfirmDeleteMeeting(null)} />
   </AppLayout>;
 }
 
