@@ -61,13 +61,22 @@ const reviewInclude = {
   },
 } as const;
 
+const editorDirectReportWhere = {
+  activated: true,
+  systemAdmin: false,
+  memberships: {
+    some: { role: 'editor' },
+    every: { role: 'editor' },
+  },
+} as const;
+
 export const leadershipRoutes: FastifyPluginAsync = async app => {
   app.addHook('preHandler', authenticate);
   app.addHook('preHandler', systemAdminOnly);
 
   app.get('/users', async () => ({
     users: await prisma.user.findMany({
-      where: { activated: true }, select: { id: true, name: true, email: true }, orderBy: { name: 'asc' },
+      where: editorDirectReportWhere, select: { id: true, name: true, email: true }, orderBy: { name: 'asc' },
     }),
   }));
 
@@ -85,8 +94,8 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
   app.post('/one-on-ones', async (req, reply) => {
     const { userId } = req.user as { userId: string };
     const body = OneOnOneSchema.parse(req.body);
-    const report = await prisma.user.findFirst({ where: { id: body.reportId, activated: true } });
-    if (!report) return reply.code(404).send({ error: 'Selected user not found' });
+    const report = await prisma.user.findFirst({ where: { id: body.reportId, ...editorDirectReportWhere } });
+    if (!report) return reply.code(400).send({ error: 'Direct report must be an activated editor' });
     const meeting = await prisma.leadershipOneOnOne.create({
       data: {
         leadId: userId, reportId: body.reportId, meetingDate: new Date(body.meetingDate),
@@ -113,8 +122,8 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
   app.post('/reviews', async (req, reply) => {
     const { userId } = req.user as { userId: string };
     const body = ReviewSchema.parse(req.body);
-    const users = await prisma.user.findMany({ where: { id: { in: body.reportIds }, activated: true }, select: { id: true } });
-    if (users.length !== new Set(body.reportIds).size) return reply.code(400).send({ error: 'One or more selected users are invalid' });
+    const users = await prisma.user.findMany({ where: { id: { in: body.reportIds }, ...editorDirectReportWhere }, select: { id: true } });
+    if (users.length !== new Set(body.reportIds).size) return reply.code(400).send({ error: 'All direct reports must be activated editors' });
     const review = await prisma.leadershipReview.create({
       data: {
         presenterId: userId, department: body.department, unitName: body.unitName,
