@@ -107,16 +107,21 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
   app.post('/one-on-ones', async (req, reply) => {
     const { userId } = req.user as { userId: string };
     const body = OneOnOneSchema.parse(req.body);
+    const today = new Date().toISOString().slice(0, 10);
+    if (body.meetingDate > today) return reply.code(400).send({ error: 'Meeting date cannot be in the future' });
+    const meetingDate = new Date(body.meetingDate);
+    const defaultNextMeetingDate = new Date(meetingDate);
+    defaultNextMeetingDate.setUTCDate(defaultNextMeetingDate.getUTCDate() + 14);
     const report = await prisma.user.findFirst({ where: { id: body.reportId, ...editorDirectReportWhere } });
     if (!report) return reply.code(400).send({ error: 'Direct report must be an activated editor' });
     const meeting = await prisma.leadershipOneOnOne.create({
       data: {
-        leadId: userId, reportId: body.reportId, meetingDate: new Date(body.meetingDate),
+        leadId: userId, reportId: body.reportId, meetingDate,
         wins: body.wins, discussionPoints: body.discussionPoints, challenges: body.challenges,
         learningDevelopment: body.learningDevelopment, managerFeedback: body.managerFeedback,
         actions: body.actions, privateNotes: body.privateNotes?.trim() || null,
         presentationSummary: body.presentationSummary?.trim() || null,
-        nextMeetingDate: body.nextMeetingDate ? new Date(body.nextMeetingDate) : null,
+        nextMeetingDate: body.nextMeetingDate ? new Date(body.nextMeetingDate) : defaultNextMeetingDate,
       },
       include: { report: { select: { id: true, name: true, email: true } } },
     });

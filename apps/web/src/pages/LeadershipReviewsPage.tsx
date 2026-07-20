@@ -31,6 +31,12 @@ interface ReviewDetail extends ReviewListItem {
 const lines = (value: string) => value.split('\n').map(item => item.trim()).filter(Boolean);
 const text = (value?: string[] | null) => (value ?? []).join('\n');
 const monthValue = () => new Date().toISOString().slice(0, 7);
+const addDays = (date: string, days: number) => {
+  if (!date) return '';
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+};
 const currentMonthRange = () => {
   const now = new Date();
   const year = now.getFullYear();
@@ -158,16 +164,17 @@ function CreateReviewModal({ open, users, usersLoading, usersError, retryUsers, 
 }
 
 function CreateMeetingModal({ open, users, usersLoading, usersError, retryUsers, error, setError, onClose, onCreated }: UserPickerProps & { open: boolean; error: string; setError: (value: string) => void; onClose: () => void; onCreated: () => void }) {
-  const [reportId, setReportId] = useState(''); const [meetingDate, setMeetingDate] = useState(new Date().toISOString().slice(0, 10)); const [wins, setWins] = useState(''); const [discussion, setDiscussion] = useState(''); const [challenges, setChallenges] = useState(''); const [learning, setLearning] = useState(''); const [feedback, setFeedback] = useState(''); const [summary, setSummary] = useState(''); const [privateNotes, setPrivateNotes] = useState(''); const [nextDate, setNextDate] = useState('');
+  const today = new Date().toISOString().slice(0, 10);
+  const [reportId, setReportId] = useState(''); const [meetingDate, setMeetingDate] = useState(today); const [wins, setWins] = useState(''); const [discussion, setDiscussion] = useState(''); const [challenges, setChallenges] = useState(''); const [learning, setLearning] = useState(''); const [feedback, setFeedback] = useState(''); const [summary, setSummary] = useState(''); const [privateNotes, setPrivateNotes] = useState(''); const [nextDate, setNextDate] = useState(addDays(today, 14));
   const create = useMutation({ mutationFn: () => api.post('leadership/one-on-ones', { reportId, meetingDate, wins: lines(wins), discussionPoints: lines(discussion), challenges: lines(challenges), learningDevelopment: lines(learning), managerFeedback: lines(feedback), actions: [], presentationSummary: summary || undefined, privateNotes: privateNotes || undefined, nextMeetingDate: nextDate || undefined }), onSuccess: onCreated, onError: (err: Error) => setError(err.message) });
   return <Modal open={open} onClose={onClose} title="Record one-on-one" footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button variant="primary" loading={create.isPending} onClick={() => { if (!reportId || !meetingDate) { setError('Direct report and meeting date are required.'); return; } create.mutate(); }}>Save meeting</Button></>}>
     {error && <div style={{ marginBottom: 12 }}><Alert type="error">{error}</Alert></div>}
     {usersLoading ? <div style={{ padding: 18, textAlign: 'center' }}><Spinner /></div> : usersError ? <QueryError message={usersError} onRetry={retryUsers} /> : users.length === 0 ? <Alert type="info">No activated editor users are available.</Alert> : <Select label="Direct report" value={reportId} onChange={event => setReportId(event.target.value)} options={[{ value: '', label: 'Select an editor' }, ...users.map(user => ({ value: user.id, label: `${user.name} (${user.email})` }))]} />}
-    <Input label="Meeting date" type="date" value={meetingDate} onChange={event => setMeetingDate(event.target.value)} />
+    <Input label="Meeting date" type="date" max={today} value={meetingDate} onChange={event => { const value = event.target.value; setMeetingDate(value); setNextDate(addDays(value, 14)); }} hint="Future dates cannot be used when logging a completed one-on-one." />
     <BulletField label="Wins and progress" value={wins} onChange={setWins} /><BulletField label="Discussion points" value={discussion} onChange={setDiscussion} /><BulletField label="Challenges" value={challenges} onChange={setChallenges} /><BulletField label="Learning & development" value={learning} onChange={setLearning} /><BulletField label="Manager feedback" value={feedback} onChange={setFeedback} />
     <Input label="Presentation-safe summary" value={summary} onChange={event => setSummary(event.target.value)} placeholder="Only content suitable for the leadership review" />
     <label className="label">Private notes</label><textarea className="input" rows={3} value={privateNotes} onChange={event => setPrivateNotes(event.target.value)} />
-    <Input label="Next meeting date (optional)" type="date" value={nextDate} onChange={event => setNextDate(event.target.value)} />
+    <Input label="Next meeting date" type="date" value={nextDate} onChange={event => setNextDate(event.target.value)} hint="Defaults to 14 days after this meeting and can be adjusted." />
   </Modal>;
 }
 
