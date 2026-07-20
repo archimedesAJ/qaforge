@@ -74,6 +74,29 @@ const editorDirectReportWhere = {
   },
 } as const;
 
+const uniqueBullets = (items: string[]) => [...new Set(items.map(item => item.trim()).filter(Boolean))].slice(0, 20);
+const stringList = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && !!item.trim()) : [];
+const actionList = (value: unknown) => Array.isArray(value) ? value.filter((item): item is { action: string; owner?: string; dueDate?: string; status?: string } =>
+  !!item && typeof item === 'object' && typeof (item as { action?: unknown }).action === 'string'
+) : [];
+
+function nextMonth(date: Date) {
+  const year = date.getUTCFullYear();
+  const targetMonth = date.getUTCMonth() + 1;
+  const lastDay = new Date(Date.UTC(year, targetMonth + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(year, targetMonth, Math.min(date.getUTCDate(), lastDay)));
+}
+
+const activityLabel: Record<string, string> = {
+  case_created: 'Created test case',
+  defect_filed: 'Filed defect',
+  defects_bulk_imported: 'Imported defects',
+  plan_created: 'Created test plan',
+  run_started: 'Started test run',
+  exploratory_session_started: 'Started exploratory session',
+  run_closed: 'Completed test run',
+};
+
 export const leadershipRoutes: FastifyPluginAsync = async app => {
   app.addHook('preHandler', authenticate);
   app.addHook('preHandler', systemAdminOnly);
@@ -184,13 +207,68 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
   app.post('/reviews', async (req, reply) => {
     const { userId } = req.user as { userId: string };
     const body = ReviewSchema.parse(req.body);
-    const users = await prisma.user.findMany({ where: { id: { in: body.reportIds }, ...editorDirectReportWhere }, select: { id: true } });
+    const users = await prisma.user.findMany({ where: { id: { in: body.reportIds }, ...editorDirectReportWhere }, select: { id: true, name: true } });
     if (users.length !== new Set(body.reportIds).size) return reply.code(400).send({ error: 'All direct reports must be activated editors' });
+    const periodStart = new Date(body.reportingPeriod);
+    const periodEnd = nextMonth(periodStart);
+    const [meetings, activities, activePlans] = await Promise.all([
+      prisma.leadershipOneOnOne.findMany({
+        where: { leadId: userId, reportId: { in: body.reportIds }, meetingDate: { gte: periodStart, lt: periodEnd } },
+        orderBy: { meetingDate: 'desc' },
+      }),
+      prisma.activityLog.findMany({
+        where: { userId: { in: body.reportIds }, createdAt: { gte: periodStart, lt: periodEnd }, action: { in: Object.keys(activityLabel) } },
+        orderBy: { createdAt: 'desc' }, take: 100,
+      }),
+      prisma.testPlan.findMany({
+        where: { createdById: { in: body.reportIds }, status: 'active' },
+        select: { name: true, milestone: true, endsAt: true, createdById: true, project: { select: { name: true } } },
+        orderBy: { endsAt: 'asc' }, take: 50,
+      }),
+    ]);
+    const userById = new Map(users.map(user => [user.id, user]));
+    const activitiesByUser = new Map<string, typeof activities>();
+    activities.forEach(activity => activitiesByUser.set(activity.userId, [...(activitiesByUser.get(activity.userId) ?? []), activity]));
+    const meetingsByUser = new Map<string, typeof meetings>();
+    meetings.forEach(meeting => meetingsByUser.set(meeting.reportId, [...(meetingsByUser.get(meeting.reportId) ?? []), meeting]));
+    const plansByUser = new Map<string, typeof activePlans>();
+    activePlans.forEach(plan => plansByUser.set(plan.createdById, [...(plansByUser.get(plan.createdById) ?? []), plan]));
+    const describeActivity = (activity: typeof activities[number]) => `${activityLabel[activity.action] ?? activity.action}${activity.entityName ? `: ${activity.entityName}` : ''}${activity.projectName ? ` (${activity.projectName})` : ''}`;
+    const unitHighlights = uniqueBullets(users.flatMap(user => [
+      ...(meetingsByUser.get(user.id) ?? []).flatMap(meeting => stringList(meeting.wins).map(win => `${user.name}: ${win}`)),
+      ...(activitiesByUser.get(user.id) ?? []).map(activity => `${user.name}: ${describeActivity(activity)}`),
+    ]));
+    const nextPeriodFocus = uniqueBullets(activePlans.map(plan => `${userById.get(plan.createdById)?.name ?? 'Team'}: ${plan.name}${plan.milestone ? ` — ${plan.milestone}` : ''} (${plan.project.name})`));
+    const workingFeedback = uniqueBullets(users.flatMap(user => (meetingsByUser.get(user.id) ?? []).flatMap(meeting => stringList(meeting.managerFeedback).map(item => `${user.name}: ${item}`))));
+    const challengesSupport = uniqueBullets(users.flatMap(user => (meetingsByUser.get(user.id) ?? []).flatMap(meeting => stringList(meeting.challenges).map(item => `${user.name}: ${item}`))));
+    const decisionsActions = meetings.flatMap(meeting => actionList(meeting.actions).filter(action => action.status !== 'done').map(action => ({ ...action, owner: action.owner || userById.get(meeting.reportId)?.name, status: action.status === 'done' ? 'done' as const : 'open' as const }))).slice(0, 30);
+    const followUps = uniqueBullets(users.flatMap(user => (meetingsByUser.get(user.id) ?? []).flatMap(meeting => [
+      ...actionList(meeting.actions).filter(action => action.status !== 'done').map(action => `${user.name}: ${action.action}`),
+      ...(meeting.nextMeetingDate ? [`${user.name}: next 1:1 on ${meeting.nextMeetingDate.toISOString().slice(0, 10)}`] : []),
+    ])));
+    const suggestedNextMeetingDate = nextMonth(body.meetingDate ? new Date(body.meetingDate) : periodStart);
     const review = await prisma.leadershipReview.create({
       data: {
         presenterId: userId, department: body.department, unitName: body.unitName,
         reportingPeriod: new Date(body.reportingPeriod), meetingDate: body.meetingDate ? new Date(body.meetingDate) : null,
-        entries: { create: users.map(user => ({ employeeId: user.id, teamUnit: body.unitName })) },
+        unitHighlights, nextPeriodFocus, workingFeedback, challengesSupport, decisionsActions, followUps,
+        nextMeetingDate: suggestedNextMeetingDate,
+        entries: { create: users.map(user => {
+          const userMeetings = meetingsByUser.get(user.id) ?? [];
+          const userActivities = activitiesByUser.get(user.id) ?? [];
+          const userPlans = plansByUser.get(user.id) ?? [];
+          return {
+            employeeId: user.id, teamUnit: body.unitName,
+            tasksAchieved: uniqueBullets([
+              ...userMeetings.flatMap(meeting => stringList(meeting.wins)),
+              ...userActivities.map(describeActivity),
+            ]),
+            inProgress: uniqueBullets(userPlans.map(plan => `${plan.name}${plan.milestone ? ` — ${plan.milestone}` : ''}${plan.endsAt ? ` · due ${plan.endsAt.toISOString().slice(0, 10)}` : ''}`)),
+            oneOnOneSummary: uniqueBullets(userMeetings.flatMap(meeting => meeting.presentationSummary ? [meeting.presentationSummary] : stringList(meeting.discussionPoints))),
+            learningDevelopment: uniqueBullets(userMeetings.flatMap(meeting => stringList(meeting.learningDevelopment))),
+            managerFeedback: uniqueBullets(userMeetings.flatMap(meeting => stringList(meeting.managerFeedback))),
+          };
+        }) },
       },
       include: reviewInclude,
     });
