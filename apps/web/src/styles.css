@@ -103,6 +103,28 @@ p  { color: var(--gray-600); line-height: 1.6; }
 .field-error { font-size: 0.8125rem; color: var(--color-danger); margin-top: 4px; }
 .field-hint  { font-size: 0.8125rem; color: var(--gray-500); margin-top: 4px; }
 
+.leadership-date-filter {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.leadership-date-field {
+  flex: 0 1 240px;
+  min-width: 190px;
+}
+.leadership-date-filter .field { margin-bottom: 0; }
+.leadership-date-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .leadership-date-field { flex: 1 1 100%; }
+  .leadership-date-actions { width: 100%; }
+}
+
 /* ── Buttons ─────────────────────────────────────────────── */
 .btn {
   display: inline-flex;

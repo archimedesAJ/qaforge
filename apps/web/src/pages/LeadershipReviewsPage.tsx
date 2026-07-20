@@ -114,11 +114,13 @@ export function LeadershipReviewsPage() {
         </div>
       </> : <>
       <div className="card" style={{ padding: 16, marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'end', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ minWidth: 180 }}><Input label="From" type="date" value={meetingDates.from} onChange={event => setMeetingDates(current => ({ ...current, from: event.target.value }))} /></div>
-          <div style={{ minWidth: 180 }}><Input label="To" type="date" value={meetingDates.to} onChange={event => setMeetingDates(current => ({ ...current, to: event.target.value }))} /></div>
-          <Button variant="secondary" size="sm" onClick={() => setMeetingDates(currentMonthRange())}>Current month</Button>
-          <Button variant="ghost" size="sm" onClick={() => setMeetingDates({ from: '', to: '' })}>All dates</Button>
+        <div className="leadership-date-filter">
+          <div className="leadership-date-field"><Input label="From" type="date" value={meetingDates.from} onChange={event => setMeetingDates(current => ({ ...current, from: event.target.value }))} /></div>
+          <div className="leadership-date-field"><Input label="To" type="date" value={meetingDates.to} onChange={event => setMeetingDates(current => ({ ...current, to: event.target.value }))} /></div>
+          <div className="leadership-date-actions">
+            <Button variant="secondary" onClick={() => setMeetingDates(currentMonthRange())}>Current month</Button>
+            <Button variant="ghost" onClick={() => setMeetingDates({ from: '', to: '' })}>All dates</Button>
+          </div>
         </div>
       </div>
       <div className="card">
