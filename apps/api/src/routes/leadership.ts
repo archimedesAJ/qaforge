@@ -1,4 +1,6 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
+import { randomUUID } from 'node:crypto';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticate } from '../middleware/auth.js';
@@ -74,6 +76,40 @@ const editorDirectReportWhere = {
   },
 } as const;
 
+interface OneOnOneRow {
+  id: string;
+  leadId: string;
+  reportId: string;
+  meetingDate: Date;
+  wins: unknown;
+  discussionPoints: unknown;
+  challenges: unknown;
+  learningDevelopment: unknown;
+  managerFeedback: unknown;
+  actions: unknown;
+  privateNotes: string | null;
+  presentationSummary: string | null;
+  nextMeetingDate: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  report: { id: string; name: string; email: string };
+}
+
+async function findOneOnOnes(leadId: string, from?: string, to?: string, meetingId?: string) {
+  return prisma.$queryRaw<OneOnOneRow[]>(Prisma.sql`
+    SELECT
+      meeting.*,
+      json_build_object('id', report."id", 'name', report."name", 'email', report."email") AS report
+    FROM "LeadershipOneOnOne" AS meeting
+    INNER JOIN "User" AS report ON report."id" = meeting."reportId"
+    WHERE meeting."leadId" = ${leadId}
+      AND (${from ?? null}::date IS NULL OR meeting."meetingDate" >= ${from ?? null}::date)
+      AND (${to ?? null}::date IS NULL OR meeting."meetingDate" <= ${to ?? null}::date)
+      AND (${meetingId ?? null}::text IS NULL OR meeting."id" = ${meetingId ?? null}::text)
+    ORDER BY meeting."meetingDate" DESC
+  `);
+}
+
 export const leadershipRoutes: FastifyPluginAsync = async app => {
   app.addHook('preHandler', authenticate);
   app.addHook('preHandler', systemAdminOnly);
@@ -88,19 +124,7 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
     const { userId } = req.user as { userId: string };
     const query = OneOnOneQuerySchema.parse(req.query);
     return {
-      meetings: await prisma.leadershipOneOnOne.findMany({
-        where: {
-          leadId: userId,
-          ...((query.from || query.to) && {
-            meetingDate: {
-              ...(query.from && { gte: new Date(query.from) }),
-              ...(query.to && { lte: new Date(query.to) }),
-            },
-          }),
-        },
-        include: { report: { select: { id: true, name: true, email: true } } },
-        orderBy: { meetingDate: 'desc' },
-      }),
+      meetings: await findOneOnOnes(userId, query.from, query.to),
     };
   });
 
@@ -114,17 +138,24 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
     defaultNextMeetingDate.setUTCDate(defaultNextMeetingDate.getUTCDate() + 14);
     const report = await prisma.user.findFirst({ where: { id: body.reportId, ...editorDirectReportWhere } });
     if (!report) return reply.code(400).send({ error: 'Direct report must be an activated editor' });
-    const meeting = await prisma.leadershipOneOnOne.create({
-      data: {
-        leadId: userId, reportId: body.reportId, meetingDate,
-        wins: body.wins, discussionPoints: body.discussionPoints, challenges: body.challenges,
-        learningDevelopment: body.learningDevelopment, managerFeedback: body.managerFeedback,
-        actions: body.actions, privateNotes: body.privateNotes?.trim() || null,
-        presentationSummary: body.presentationSummary?.trim() || null,
-        nextMeetingDate: body.nextMeetingDate ? new Date(body.nextMeetingDate) : defaultNextMeetingDate,
-      },
-      include: { report: { select: { id: true, name: true, email: true } } },
-    });
+    const meetingId = randomUUID();
+    const nextMeetingDate = body.nextMeetingDate ?? defaultNextMeetingDate.toISOString().slice(0, 10);
+    await prisma.$executeRaw(Prisma.sql`
+      INSERT INTO "LeadershipOneOnOne" (
+        "id", "leadId", "reportId", "meetingDate", "wins", "discussionPoints", "challenges",
+        "learningDevelopment", "managerFeedback", "actions", "privateNotes", "presentationSummary",
+        "nextMeetingDate", "createdAt", "updatedAt"
+      ) VALUES (
+        ${meetingId}, ${userId}, ${body.reportId}, ${body.meetingDate}::date,
+        ${JSON.stringify(body.wins)}::jsonb, ${JSON.stringify(body.discussionPoints)}::jsonb,
+        ${JSON.stringify(body.challenges)}::jsonb, ${JSON.stringify(body.learningDevelopment)}::jsonb,
+        ${JSON.stringify(body.managerFeedback)}::jsonb, ${JSON.stringify(body.actions)}::jsonb,
+        ${body.privateNotes?.trim() || null}, ${body.presentationSummary?.trim() || null},
+        ${nextMeetingDate}::date, NOW(), NOW()
+      )
+    `);
+    const [meeting] = await findOneOnOnes(userId, undefined, undefined, meetingId);
+    if (!meeting) return reply.code(500).send({ error: 'Meeting was saved but could not be reloaded' });
     return reply.code(201).send(meeting);
   });
 
