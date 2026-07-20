@@ -35,6 +35,7 @@ COPY --from=builder /app/packages/db       ./packages/db
 COPY --from=builder /app/packages/types    ./packages/types
 COPY --from=builder /app/apps/api/dist     ./apps/api/dist
 COPY --from=builder /app/apps/api/package.json ./apps/api/package.json
+COPY --from=builder /app/apps/api/assets     ./apps/api/assets
 COPY --from=builder /app/package.json      .
 
 ENV NODE_ENV=production

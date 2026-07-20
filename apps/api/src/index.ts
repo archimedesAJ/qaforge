@@ -12,6 +12,7 @@ import { defectsRoutes } from './routes/defects.js';
 import { insightsRoutes } from './routes/insights.js';
 import { aiRoutes } from './routes/ai.js';
 import { uploadsRoutes } from './routes/uploads.js';
+import { leadershipRoutes } from './routes/leadership.js';
 import { startWeeklyDigest } from './jobs/weeklyDigest.js';
 
 const app = Fastify({
@@ -47,6 +48,7 @@ await app.register(defectsRoutes,  { prefix: '/api/projects' });
 await app.register(insightsRoutes, { prefix: '/api/projects' });
 await app.register(aiRoutes,       { prefix: '/api/projects' });
 await app.register(uploadsRoutes,  { prefix: '/api/uploads' });
+await app.register(leadershipRoutes, { prefix: '/api/leadership' });
 
 // ── Health check ─────────────────────────────────────────────
 app.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));

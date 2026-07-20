@@ -68,6 +68,13 @@ export function AppLayout({ children, title, actions }: AppLayoutProps) {
     { to: `/projects/${projectId}/insights`, label: 'Insights',    icon: '◈' },
     { to: `/projects/${projectId}/settings`, label: 'Settings',    icon: '⚙' },
   ] : [];
+  const rootNav: NavItem[] = user?.systemAdmin ? [
+    { to: '/', label: 'Projects', icon: '▦' },
+    { to: '/admin/dashboard', label: 'Admin dashboard', icon: '◈' },
+    { to: '/admin/users', label: 'Users', icon: '♟' },
+    { to: '/admin/leadership', label: 'Leadership reviews', icon: '◆' },
+    { to: '/admin/activity', label: 'Activity', icon: '≡' },
+  ] : [{ to: '/', label: 'Projects', icon: '▦' }];
 
   return (
     <div className="app-layout">
@@ -138,9 +145,7 @@ export function AppLayout({ children, title, actions }: AppLayoutProps) {
         <nav style={{ flex: 1, paddingTop: 4 }}>
           {projectNav.length > 0
             ? projectNav.map(item => <SidebarItem key={item.to} {...item} collapsed={collapsed} />)
-            : (
-              <SidebarItem to="/" label="Projects" icon="▦" collapsed={collapsed} />
-            )
+            : rootNav.map(item => <SidebarItem key={item.to} {...item} collapsed={collapsed} />)
           }
         </nav>
 

@@ -29,6 +29,10 @@ model User {
   caseLinks      CaseLink[]      @relation("LinkAuthor")
   plansCreated   TestPlan[]      @relation("PlanAuthor")
   setsCreated    TestSet[]       @relation("SetAuthor")
+  oneOnOnesLed   LeadershipOneOnOne[] @relation("OneOnOneLead")
+  oneOnOnesAsReport LeadershipOneOnOne[] @relation("OneOnOneReport")
+  leadershipReviews LeadershipReview[] @relation("LeadershipPresenter")
+  leadershipEntries LeadershipReviewEntry[] @relation("LeadershipEmployee")
 }
 
 model Project {
@@ -366,4 +370,80 @@ model TrendSeries {
 
   @@unique([projectId, date, env, suiteId])
   @@index([projectId, date])
+}
+
+// ─────────────────────────────────────────────────────────────
+// System-admin leadership reviews
+// ─────────────────────────────────────────────────────────────
+
+model LeadershipOneOnOne {
+  id                  String   @id @default(uuid())
+  leadId              String
+  reportId            String
+  meetingDate         DateTime @db.Date
+  wins                Json     @default("[]")
+  discussionPoints    Json     @default("[]")
+  challenges          Json     @default("[]")
+  learningDevelopment Json     @default("[]")
+  managerFeedback     Json     @default("[]")
+  actions             Json     @default("[]")
+  privateNotes        String?
+  presentationSummary String?
+  nextMeetingDate     DateTime? @db.Date
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  lead   User @relation("OneOnOneLead", fields: [leadId], references: [id])
+  report User @relation("OneOnOneReport", fields: [reportId], references: [id])
+
+  @@index([leadId, meetingDate])
+  @@index([reportId, meetingDate])
+}
+
+model LeadershipReview {
+  id                  String   @id @default(uuid())
+  presenterId         String
+  department          String
+  unitName            String
+  reportingPeriod     DateTime @db.Date
+  meetingDate         DateTime? @db.Date
+  status              String   @default("draft") // draft | ready | presented | closed
+  unitHighlights      Json     @default("[]")
+  nextPeriodFocus     Json     @default("[]")
+  workingFeedback     Json     @default("[]")
+  challengesSupport   Json     @default("[]")
+  decisionsActions    Json     @default("[]")
+  crossTeamDependencies Json   @default("[]")
+  followUps           Json     @default("[]")
+  nextMeetingDate     DateTime? @db.Date
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  presenter User @relation("LeadershipPresenter", fields: [presenterId], references: [id])
+  entries   LeadershipReviewEntry[]
+
+  @@index([presenterId, reportingPeriod])
+}
+
+model LeadershipReviewEntry {
+  id                  String @id @default(uuid())
+  reviewId            String
+  employeeId          String
+  jobTitle            String?
+  teamUnit            String?
+  tasksAchieved       Json   @default("[]")
+  inProgress          Json   @default("[]")
+  planned             Json   @default("[]")
+  oneOnOneSummary     Json   @default("[]")
+  learningDevelopment Json   @default("[]")
+  managerFeedback     Json   @default("[]")
+  ldHours             Float  @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  review   LeadershipReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  employee User @relation("LeadershipEmployee", fields: [employeeId], references: [id])
+
+  @@unique([reviewId, employeeId])
+  @@index([employeeId])
 }
