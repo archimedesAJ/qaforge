@@ -29,6 +29,11 @@ const ReviewSchema = z.object({
   reportIds: z.array(z.string().uuid()).min(1).max(50),
 });
 
+const OneOnOneQuerySchema = z.object({
+  from: z.string().date().optional(),
+  to: z.string().date().optional(),
+});
+
 const ReviewUpdateSchema = z.object({
   status: z.enum(['draft', 'ready', 'presented', 'closed']).optional(),
   department: z.string().trim().min(1).max(200).optional(),
@@ -66,7 +71,6 @@ const editorDirectReportWhere = {
   systemAdmin: false,
   memberships: {
     some: { role: 'editor' },
-    every: { role: 'editor' },
   },
 } as const;
 
@@ -82,9 +86,18 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
 
   app.get('/one-on-ones', async req => {
     const { userId } = req.user as { userId: string };
+    const query = OneOnOneQuerySchema.parse(req.query);
     return {
       meetings: await prisma.leadershipOneOnOne.findMany({
-        where: { leadId: userId },
+        where: {
+          leadId: userId,
+          ...((query.from || query.to) && {
+            meetingDate: {
+              ...(query.from && { gte: new Date(query.from) }),
+              ...(query.to && { lte: new Date(query.to) }),
+            },
+          }),
+        },
         include: { report: { select: { id: true, name: true, email: true } } },
         orderBy: { meetingDate: 'desc' },
       }),

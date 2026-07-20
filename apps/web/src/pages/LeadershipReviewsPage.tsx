@@ -31,6 +31,16 @@ interface ReviewDetail extends ReviewListItem {
 const lines = (value: string) => value.split('\n').map(item => item.trim()).filter(Boolean);
 const text = (value?: string[] | null) => (value ?? []).join('\n');
 const monthValue = () => new Date().toISOString().slice(0, 7);
+const currentMonthRange = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return {
+    from: `${year}-${pad(month + 1)}-01`,
+    to: `${year}-${pad(month + 1)}-${pad(new Date(year, month + 1, 0).getDate())}`,
+  };
+};
 
 function BulletField({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
   return <div>
@@ -47,6 +57,7 @@ export function LeadershipReviewsPage() {
   const [showMeeting, setShowMeeting] = useState(false);
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [meetingDates, setMeetingDates] = useState(currentMonthRange);
 
   const usersQuery = useQuery({
     queryKey: ['sysadmin-users'],
@@ -54,14 +65,24 @@ export function LeadershipReviewsPage() {
     enabled: isSystemAdmin,
   });
   const reviewsQuery = useQuery({ queryKey: ['leadership-reviews'], queryFn: () => api.get<{ reviews: ReviewListItem[] }>('leadership/reviews'), enabled: isSystemAdmin });
-  const meetingsQuery = useQuery({ queryKey: ['leadership-one-on-ones'], queryFn: () => api.get<{ meetings: Meeting[] }>('leadership/one-on-ones'), enabled: isSystemAdmin });
+  const meetingsQuery = useQuery({
+    queryKey: ['leadership-one-on-ones', meetingDates.from, meetingDates.to],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (meetingDates.from) params.set('from', meetingDates.from);
+      if (meetingDates.to) params.set('to', meetingDates.to);
+      const query = params.toString();
+      return api.get<{ meetings: Meeting[] }>(`leadership/one-on-ones${query ? `?${query}` : ''}`);
+    },
+    enabled: isSystemAdmin,
+  });
 
   if (!isSystemAdmin) return <Navigate to="/" replace />;
   const users = (usersQuery.data?.users ?? []).filter(user =>
     user.activated &&
     !user.systemAdmin &&
     user.memberships.length > 0 &&
-    user.memberships.every(membership => membership.role === 'editor')
+    user.memberships.some(membership => membership.role === 'editor')
   );
   const reviews = reviewsQuery.data?.reviews ?? [];
   const meetings = meetingsQuery.data?.meetings ?? [];
@@ -91,14 +112,23 @@ export function LeadershipReviewsPage() {
             <Button variant="secondary" size="sm" onClick={() => setActiveReviewId(review.id)}>Open</Button>
           </div>)}
         </div>
-      </> : <div className="card">
+      </> : <>
+      <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'end', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ minWidth: 180 }}><Input label="From" type="date" value={meetingDates.from} onChange={event => setMeetingDates(current => ({ ...current, from: event.target.value }))} /></div>
+          <div style={{ minWidth: 180 }}><Input label="To" type="date" value={meetingDates.to} onChange={event => setMeetingDates(current => ({ ...current, to: event.target.value }))} /></div>
+          <Button variant="secondary" size="sm" onClick={() => setMeetingDates(currentMonthRange())}>Current month</Button>
+          <Button variant="ghost" size="sm" onClick={() => setMeetingDates({ from: '', to: '' })}>All dates</Button>
+        </div>
+      </div>
+      <div className="card">
         {meetingsQuery.isError && <QueryError message={meetingsQuery.error.message} onRetry={() => meetingsQuery.refetch()} />}
-        {!meetingsQuery.isError && meetings.length === 0 && <EmptyState icon="◉" title="No one-on-ones recorded" description="Record the first meeting with an editor direct report." action={<Button variant="primary" onClick={() => setShowMeeting(true)}>Record first one-on-one</Button>} />}
+        {!meetingsQuery.isError && meetings.length === 0 && <EmptyState icon="◉" title="No one-on-ones found" description={meetingDates.from || meetingDates.to ? 'No meetings were recorded in the selected date range.' : 'Record the first meeting with an editor direct report.'} action={<Button variant="primary" onClick={() => setShowMeeting(true)}>Record one-on-one</Button>} />}
         {meetings.map(meeting => <div key={meeting.id} style={{ padding: '14px 18px', borderBottom: '1px solid var(--border-color)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}><strong>{meeting.report.name}</strong><span style={{ color: 'var(--gray-500)', fontSize: '0.8125rem' }}>{new Date(meeting.meetingDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</span></div>
           {meeting.presentationSummary && <div style={{ marginTop: 6, fontSize: '0.875rem', color: 'var(--gray-600)' }}>{meeting.presentationSummary}</div>}
         </div>)}
-      </div>}
+      </div></>}
     </div>
     <CreateReviewModal open={showReview} users={users} usersLoading={usersQuery.isLoading} usersError={usersQuery.isError ? usersQuery.error.message : ''} retryUsers={() => usersQuery.refetch()} error={error} setError={setError} onClose={() => setShowReview(false)} onCreated={id => { qc.invalidateQueries({ queryKey: ['leadership-reviews'] }); setShowReview(false); setActiveReviewId(id); }} />
     <CreateMeetingModal open={showMeeting} users={users} usersLoading={usersQuery.isLoading} usersError={usersQuery.isError ? usersQuery.error.message : ''} retryUsers={() => usersQuery.refetch()} error={error} setError={setError} onClose={() => setShowMeeting(false)} onCreated={() => { qc.invalidateQueries({ queryKey: ['leadership-one-on-ones'] }); setShowMeeting(false); setTab('one-on-ones'); }} />
