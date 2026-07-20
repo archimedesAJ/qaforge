@@ -128,6 +128,50 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
     return reply.code(201).send(meeting);
   });
 
+  app.get('/one-on-ones/:meetingId', async (req, reply) => {
+    const { userId } = req.user as { userId: string };
+    const { meetingId } = req.params as { meetingId: string };
+    const meeting = await prisma.leadershipOneOnOne.findFirst({
+      where: { id: meetingId, leadId: userId },
+      include: { report: { select: { id: true, name: true, email: true } } },
+    });
+    if (!meeting) return reply.code(404).send({ error: 'One-on-one not found' });
+    return meeting;
+  });
+
+  app.patch('/one-on-ones/:meetingId', async (req, reply) => {
+    const { userId } = req.user as { userId: string };
+    const { meetingId } = req.params as { meetingId: string };
+    const body = OneOnOneSchema.parse(req.body);
+    const today = new Date().toISOString().slice(0, 10);
+    if (body.meetingDate > today) return reply.code(400).send({ error: 'Meeting date cannot be in the future' });
+    const existing = await prisma.leadershipOneOnOne.findFirst({ where: { id: meetingId, leadId: userId } });
+    if (!existing) return reply.code(404).send({ error: 'One-on-one not found' });
+    const report = await prisma.user.findFirst({ where: { id: body.reportId, ...editorDirectReportWhere } });
+    if (!report) return reply.code(400).send({ error: 'Direct report must be an activated editor' });
+    return prisma.leadershipOneOnOne.update({
+      where: { id: meetingId },
+      data: {
+        reportId: body.reportId, meetingDate: new Date(body.meetingDate),
+        wins: body.wins, discussionPoints: body.discussionPoints, challenges: body.challenges,
+        learningDevelopment: body.learningDevelopment, managerFeedback: body.managerFeedback,
+        actions: body.actions, privateNotes: body.privateNotes?.trim() || null,
+        presentationSummary: body.presentationSummary?.trim() || null,
+        nextMeetingDate: body.nextMeetingDate ? new Date(body.nextMeetingDate) : null,
+      },
+      include: { report: { select: { id: true, name: true, email: true } } },
+    });
+  });
+
+  app.delete('/one-on-ones/:meetingId', async (req, reply) => {
+    const { userId } = req.user as { userId: string };
+    const { meetingId } = req.params as { meetingId: string };
+    const existing = await prisma.leadershipOneOnOne.findFirst({ where: { id: meetingId, leadId: userId }, select: { id: true } });
+    if (!existing) return reply.code(404).send({ error: 'One-on-one not found' });
+    await prisma.leadershipOneOnOne.delete({ where: { id: meetingId } });
+    return reply.code(204).send();
+  });
+
   app.get('/reviews', async req => {
     const { userId } = req.user as { userId: string };
     return {

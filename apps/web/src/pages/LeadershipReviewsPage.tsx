@@ -13,7 +13,12 @@ interface AdminPerson extends Person {
   systemAdmin: boolean;
   memberships: { role: string }[];
 }
-interface Meeting { id: string; meetingDate: string; nextMeetingDate?: string | null; presentationSummary?: string | null; report: Person }
+interface Meeting {
+  id: string; meetingDate: string; nextMeetingDate?: string | null; presentationSummary?: string | null;
+  wins: string[]; discussionPoints: string[]; challenges: string[]; learningDevelopment: string[];
+  managerFeedback: string[]; actions: { action: string; owner?: string; dueDate?: string; status?: string }[];
+  privateNotes?: string | null; report: Person;
+}
 interface ReviewListItem { id: string; department: string; unitName: string; reportingPeriod: string; meetingDate?: string | null; status: string; _count: { entries: number } }
 interface ReviewEntry {
   id: string; employee: Person; jobTitle?: string | null; teamUnit?: string | null; ldHours: number;
@@ -61,6 +66,8 @@ export function LeadershipReviewsPage() {
   const [tab, setTab] = useState<Tab>('reviews');
   const [showReview, setShowReview] = useState(false);
   const [showMeeting, setShowMeeting] = useState(false);
+  const [viewMeeting, setViewMeeting] = useState<Meeting | null>(null);
+  const [editMeeting, setEditMeeting] = useState<Meeting | null>(null);
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [meetingDates, setMeetingDates] = useState(currentMonthRange);
@@ -81,6 +88,11 @@ export function LeadershipReviewsPage() {
       return api.get<{ meetings: Meeting[] }>(`leadership/one-on-ones${query ? `?${query}` : ''}`);
     },
     enabled: isSystemAdmin,
+  });
+  const deleteMeeting = useMutation({
+    mutationFn: (meetingId: string) => api.delete(`leadership/one-on-ones/${meetingId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['leadership-one-on-ones'] }),
+    onError: (err: Error) => setError(err.message),
   });
 
   if (!isSystemAdmin) return <Navigate to="/" replace />;
@@ -130,16 +142,19 @@ export function LeadershipReviewsPage() {
         </div>
       </div>
       <div className="card">
+        {error && !showMeeting && !editMeeting && <div style={{ padding: 16 }}><Alert type="error">{error}</Alert></div>}
         {meetingsQuery.isError && <QueryError message={meetingsQuery.error.message} onRetry={() => meetingsQuery.refetch()} />}
         {!meetingsQuery.isError && meetings.length === 0 && <EmptyState icon="◉" title="No one-on-ones found" description={meetingDates.from || meetingDates.to ? 'No meetings were recorded in the selected date range.' : 'Record the first meeting with an editor direct report.'} action={<Button variant="primary" onClick={() => setShowMeeting(true)}>Record one-on-one</Button>} />}
         {meetings.map(meeting => <div key={meeting.id} style={{ padding: '14px 18px', borderBottom: '1px solid var(--border-color)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}><strong>{meeting.report.name}</strong><span style={{ color: 'var(--gray-500)', fontSize: '0.8125rem' }}>{new Date(meeting.meetingDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</span></div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}><div style={{ flex: 1 }}><strong>{meeting.report.name}</strong><div style={{ color: 'var(--gray-500)', fontSize: '0.8125rem', marginTop: 3 }}>{new Date(meeting.meetingDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</div></div><Button variant="ghost" size="sm" onClick={() => setViewMeeting(meeting)}>View</Button><Button variant="secondary" size="sm" onClick={() => { setError(''); setEditMeeting(meeting); }}>Edit</Button><Button variant="danger" size="sm" loading={deleteMeeting.isPending && deleteMeeting.variables === meeting.id} onClick={() => { if (window.confirm(`Delete the one-on-one with ${meeting.report.name}? This cannot be undone.`)) deleteMeeting.mutate(meeting.id); }}>Delete</Button></div>
           {meeting.presentationSummary && <div style={{ marginTop: 6, fontSize: '0.875rem', color: 'var(--gray-600)' }}>{meeting.presentationSummary}</div>}
         </div>)}
       </div></>}
     </div>
     <CreateReviewModal open={showReview} users={users} usersLoading={usersQuery.isLoading} usersError={usersQuery.isError ? usersQuery.error.message : ''} retryUsers={() => usersQuery.refetch()} error={error} setError={setError} onClose={() => setShowReview(false)} onCreated={id => { qc.invalidateQueries({ queryKey: ['leadership-reviews'] }); setShowReview(false); setActiveReviewId(id); }} />
-    <CreateMeetingModal open={showMeeting} users={users} usersLoading={usersQuery.isLoading} usersError={usersQuery.isError ? usersQuery.error.message : ''} retryUsers={() => usersQuery.refetch()} error={error} setError={setError} onClose={() => setShowMeeting(false)} onCreated={() => { qc.invalidateQueries({ queryKey: ['leadership-one-on-ones'] }); setShowMeeting(false); setTab('one-on-ones'); }} />
+    {showMeeting && <MeetingFormModal open users={users} usersLoading={usersQuery.isLoading} usersError={usersQuery.isError ? usersQuery.error.message : ''} retryUsers={() => usersQuery.refetch()} error={error} setError={setError} onClose={() => setShowMeeting(false)} onSaved={() => { qc.invalidateQueries({ queryKey: ['leadership-one-on-ones'] }); setShowMeeting(false); setTab('one-on-ones'); }} />}
+    {editMeeting && <MeetingFormModal open meeting={editMeeting} users={users} usersLoading={usersQuery.isLoading} usersError={usersQuery.isError ? usersQuery.error.message : ''} retryUsers={() => usersQuery.refetch()} error={error} setError={setError} onClose={() => setEditMeeting(null)} onSaved={() => { qc.invalidateQueries({ queryKey: ['leadership-one-on-ones'] }); setEditMeeting(null); }} />}
+    {viewMeeting && <MeetingDetailModal meeting={viewMeeting} onClose={() => setViewMeeting(null)} onEdit={() => { setError(''); setEditMeeting(viewMeeting); setViewMeeting(null); }} />}
   </AppLayout>;
 }
 
@@ -163,11 +178,12 @@ function CreateReviewModal({ open, users, usersLoading, usersError, retryUsers, 
   </Modal>;
 }
 
-function CreateMeetingModal({ open, users, usersLoading, usersError, retryUsers, error, setError, onClose, onCreated }: UserPickerProps & { open: boolean; error: string; setError: (value: string) => void; onClose: () => void; onCreated: () => void }) {
+function MeetingFormModal({ open, meeting, users, usersLoading, usersError, retryUsers, error, setError, onClose, onSaved }: UserPickerProps & { open: boolean; meeting?: Meeting; error: string; setError: (value: string) => void; onClose: () => void; onSaved: () => void }) {
   const today = new Date().toISOString().slice(0, 10);
-  const [reportId, setReportId] = useState(''); const [meetingDate, setMeetingDate] = useState(today); const [wins, setWins] = useState(''); const [discussion, setDiscussion] = useState(''); const [challenges, setChallenges] = useState(''); const [learning, setLearning] = useState(''); const [feedback, setFeedback] = useState(''); const [summary, setSummary] = useState(''); const [privateNotes, setPrivateNotes] = useState(''); const [nextDate, setNextDate] = useState(addDays(today, 14));
-  const create = useMutation({ mutationFn: () => api.post('leadership/one-on-ones', { reportId, meetingDate, wins: lines(wins), discussionPoints: lines(discussion), challenges: lines(challenges), learningDevelopment: lines(learning), managerFeedback: lines(feedback), actions: [], presentationSummary: summary || undefined, privateNotes: privateNotes || undefined, nextMeetingDate: nextDate || undefined }), onSuccess: onCreated, onError: (err: Error) => setError(err.message) });
-  return <Modal open={open} onClose={onClose} title="Record one-on-one" footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button variant="primary" loading={create.isPending} onClick={() => { if (!reportId || !meetingDate) { setError('Direct report and meeting date are required.'); return; } create.mutate(); }}>Save meeting</Button></>}>
+  const initialDate = meeting?.meetingDate.slice(0, 10) ?? today;
+  const [reportId, setReportId] = useState(meeting?.report.id ?? ''); const [meetingDate, setMeetingDate] = useState(initialDate); const [wins, setWins] = useState(text(meeting?.wins)); const [discussion, setDiscussion] = useState(text(meeting?.discussionPoints)); const [challenges, setChallenges] = useState(text(meeting?.challenges)); const [learning, setLearning] = useState(text(meeting?.learningDevelopment)); const [feedback, setFeedback] = useState(text(meeting?.managerFeedback)); const [summary, setSummary] = useState(meeting?.presentationSummary ?? ''); const [privateNotes, setPrivateNotes] = useState(meeting?.privateNotes ?? ''); const [nextDate, setNextDate] = useState(meeting?.nextMeetingDate?.slice(0, 10) ?? addDays(initialDate, 14));
+  const save = useMutation({ mutationFn: () => { const body = { reportId, meetingDate, wins: lines(wins), discussionPoints: lines(discussion), challenges: lines(challenges), learningDevelopment: lines(learning), managerFeedback: lines(feedback), actions: meeting?.actions ?? [], presentationSummary: summary || undefined, privateNotes: privateNotes || undefined, nextMeetingDate: nextDate || undefined }; return meeting ? api.patch(`leadership/one-on-ones/${meeting.id}`, body) : api.post('leadership/one-on-ones', body); }, onSuccess: onSaved, onError: (err: Error) => setError(err.message) });
+  return <Modal open={open} onClose={onClose} title={meeting ? 'Edit one-on-one' : 'Record one-on-one'} footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button variant="primary" loading={save.isPending} onClick={() => { if (!reportId || !meetingDate) { setError('Direct report and meeting date are required.'); return; } save.mutate(); }}>Save meeting</Button></>}>
     {error && <div style={{ marginBottom: 12 }}><Alert type="error">{error}</Alert></div>}
     {usersLoading ? <div style={{ padding: 18, textAlign: 'center' }}><Spinner /></div> : usersError ? <QueryError message={usersError} onRetry={retryUsers} /> : users.length === 0 ? <Alert type="info">No activated editor users are available.</Alert> : <Select label="Direct report" value={reportId} onChange={event => setReportId(event.target.value)} options={[{ value: '', label: 'Select an editor' }, ...users.map(user => ({ value: user.id, label: `${user.name} (${user.email})` }))]} />}
     <Input label="Meeting date" type="date" max={today} value={meetingDate} onChange={event => { const value = event.target.value; setMeetingDate(value); setNextDate(addDays(value, 14)); }} hint="Future dates cannot be used when logging a completed one-on-one." />
@@ -176,6 +192,27 @@ function CreateMeetingModal({ open, users, usersLoading, usersError, retryUsers,
     <label className="label">Private notes</label><textarea className="input" rows={3} value={privateNotes} onChange={event => setPrivateNotes(event.target.value)} />
     <Input label="Next meeting date" type="date" value={nextDate} onChange={event => setNextDate(event.target.value)} hint="Defaults to 14 days after this meeting and can be adjusted." />
   </Modal>;
+}
+
+function MeetingDetailModal({ meeting, onClose, onEdit }: { meeting: Meeting; onClose: () => void; onEdit: () => void }) {
+  return <Modal open onClose={onClose} title={`One-on-one · ${meeting.report.name}`} footer={<><Button variant="secondary" onClick={onClose}>Close</Button><Button variant="primary" onClick={onEdit}>Edit</Button></>}>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 18 }}>
+      <div><div className="label">Meeting date</div><strong>{new Date(meeting.meetingDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</strong></div>
+      <div><div className="label">Next meeting</div><strong>{meeting.nextMeetingDate ? new Date(meeting.nextMeetingDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Not scheduled'}</strong></div>
+    </div>
+    <MeetingDetailSection title="Wins and progress" items={meeting.wins} />
+    <MeetingDetailSection title="Discussion points" items={meeting.discussionPoints} />
+    <MeetingDetailSection title="Challenges" items={meeting.challenges} />
+    <MeetingDetailSection title="Learning & development" items={meeting.learningDevelopment} />
+    <MeetingDetailSection title="Manager feedback" items={meeting.managerFeedback} />
+    <MeetingDetailSection title="Actions" items={(meeting.actions ?? []).map(action => [action.action, action.owner, action.dueDate].filter(Boolean).join(' · '))} />
+    <MeetingDetailSection title="Presentation-safe summary" items={meeting.presentationSummary ? [meeting.presentationSummary] : []} />
+    <MeetingDetailSection title="Private notes" items={meeting.privateNotes ? [meeting.privateNotes] : []} privateSection />
+  </Modal>;
+}
+
+function MeetingDetailSection({ title, items, privateSection = false }: { title: string; items: string[]; privateSection?: boolean }) {
+  return <div style={{ marginBottom: 16, padding: 12, borderRadius: 7, background: privateSection ? 'var(--color-warning-light)' : 'var(--gray-50)' }}><div style={{ fontWeight: 600, marginBottom: 6 }}>{title}{privateSection ? ' · confidential' : ''}</div>{items.length ? <ul style={{ margin: 0, paddingLeft: 20 }}>{items.map((item, index) => <li key={index} style={{ marginBottom: 4 }}>{item}</li>)}</ul> : <span style={{ color: 'var(--gray-400)', fontSize: '0.875rem' }}>Nothing recorded.</span>}</div>;
 }
 
 function ReviewEditor({ reviewId, onBack }: { reviewId: string; onBack: () => void }) {
