@@ -6,7 +6,7 @@ import { Alert, Button, ConfirmDialog, EmptyState, Input, Modal, Select, Spinner
 import { api } from '../lib/api';
 import { useAuthStore } from '../store/auth';
 
-type Tab = 'reviews' | 'one-on-ones';
+type Tab = 'reviews' | 'one-on-ones' | 'learning';
 interface Person { id: string; name: string; email: string }
 interface AdminPerson extends Person {
   activated: boolean;
@@ -18,6 +18,11 @@ interface Meeting {
   wins: string[]; discussionPoints: string[]; challenges: string[]; learningDevelopment: string[];
   managerFeedback: string[]; actions: { action: string; owner?: string; dueDate?: string; status?: string }[];
   privateNotes?: string | null; report: Person;
+}
+interface LearningRecord {
+  id: string; title: string; type: string; provider?: string | null; skillArea?: string | null; status: string;
+  startDate?: string | null; targetCompletionDate?: string | null; completionDate?: string | null; expiryDate?: string | null;
+  learningHours: number; evidenceUrl?: string | null; notes?: string | null; employee: Person;
 }
 interface ReviewListItem { id: string; department: string; unitName: string; reportingPeriod: string; meetingDate?: string | null; status: string; _count: { entries: number } }
 interface ReviewEntry {
@@ -122,7 +127,7 @@ export function LeadershipReviewsPage() {
   </div>}>
     <div style={{ maxWidth: 1100, margin: '0 auto' }}>
       <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid var(--border-color)' }}>
-        {[['reviews', 'Monthly reviews'], ['one-on-ones', 'One-on-ones']].map(([value, label]) => <button key={value} onClick={() => setTab(value as Tab)} style={{ padding: '9px 16px', border: 'none', borderBottom: tab === value ? '2px solid var(--color-primary)' : '2px solid transparent', background: 'none', color: tab === value ? 'var(--color-primary)' : 'var(--gray-500)', cursor: 'pointer', fontWeight: 600 }}>{label}</button>)}
+        {[['reviews', 'Monthly reviews'], ['one-on-ones', 'One-on-ones'], ['learning', 'L&D tracker']].map(([value, label]) => <button key={value} onClick={() => setTab(value as Tab)} style={{ padding: '9px 16px', border: 'none', borderBottom: tab === value ? '2px solid var(--color-primary)' : '2px solid transparent', background: 'none', color: tab === value ? 'var(--color-primary)' : 'var(--gray-500)', cursor: 'pointer', fontWeight: 600 }}>{label}</button>)}
       </div>
 
       {activeReviewId ? <ReviewEditor reviewId={activeReviewId} onBack={() => setActiveReviewId(null)} /> : tab === 'reviews' ? <>
@@ -141,7 +146,7 @@ export function LeadershipReviewsPage() {
             <Button variant="secondary" size="sm" onClick={() => setActiveReviewId(review.id)}>Open</Button>
           </div>)}
         </div>
-      </> : <>
+      </> : tab === 'one-on-ones' ? <>
       <div className="card" style={{ padding: 16, marginBottom: 16 }}>
         <div className="leadership-date-filter">
           <div className="leadership-date-field"><Input label="From" type="date" value={meetingDates.from} onChange={event => setMeetingDates(current => ({ ...current, from: event.target.value }))} /></div>
@@ -166,7 +171,7 @@ export function LeadershipReviewsPage() {
             {meeting.presentationSummary && <div style={{ marginTop: 6, fontSize: '0.875rem', color: 'var(--gray-600)' }}>{meeting.presentationSummary}</div>}
           </div>)}
         </div>)}
-      </div></>}
+      </div></> : <LearningTracker users={users} />}
     </div>
     <CreateReviewModal open={showReview} users={users} usersLoading={usersQuery.isLoading} usersError={usersQuery.isError ? usersQuery.error.message : ''} retryUsers={() => usersQuery.refetch()} error={error} setError={setError} onClose={() => setShowReview(false)} onCreated={id => { qc.invalidateQueries({ queryKey: ['leadership-reviews'] }); setShowReview(false); setActiveReviewId(id); }} />
     {showMeeting && <MeetingFormModal open users={users} usersLoading={usersQuery.isLoading} usersError={usersQuery.isError ? usersQuery.error.message : ''} retryUsers={() => usersQuery.refetch()} error={error} setError={setError} onClose={() => { setError(''); setShowMeeting(false); }} onSaved={() => { setError(''); qc.invalidateQueries({ queryKey: ['leadership-one-on-ones'] }); setShowMeeting(false); setTab('one-on-ones'); }} />}
@@ -232,6 +237,118 @@ function MeetingDetailModal({ meeting, onClose, onEdit }: { meeting: Meeting; on
 
 function MeetingDetailSection({ title, items, privateSection = false }: { title: string; items: string[]; privateSection?: boolean }) {
   return <div style={{ marginBottom: 16, padding: 12, borderRadius: 7, background: privateSection ? 'var(--color-warning-light)' : 'var(--gray-50)' }}><div style={{ fontWeight: 600, marginBottom: 6 }}>{title}{privateSection ? ' · confidential' : ''}</div>{items.length ? <ul style={{ margin: 0, paddingLeft: 20 }}>{items.map((item, index) => <li key={index} style={{ marginBottom: 4 }}>{item}</li>)}</ul> : <span style={{ color: 'var(--gray-400)', fontSize: '0.875rem' }}>Nothing recorded.</span>}</div>;
+}
+
+const LEARNING_TYPE_OPTIONS = [
+  { value: 'course', label: 'Course' }, { value: 'certification', label: 'Certification' },
+  { value: 'workshop', label: 'Workshop' }, { value: 'conference', label: 'Conference' },
+  { value: 'mentorship', label: 'Mentorship' },
+];
+const LEARNING_STATUS_OPTIONS = [
+  { value: 'planned', label: 'Planned' }, { value: 'in_progress', label: 'In progress' },
+  { value: 'completed', label: 'Completed' }, { value: 'paused', label: 'Paused' },
+  { value: 'cancelled', label: 'Cancelled' },
+];
+const displayDate = (value?: string | null) => value ? new Date(value).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+
+function LearningTracker({ users }: { users: Person[] }) {
+  const qc = useQueryClient();
+  const [showCreate, setShowCreate] = useState(false);
+  const [editRecord, setEditRecord] = useState<LearningRecord | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<LearningRecord | null>(null);
+  const [employeeFilter, setEmployeeFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [error, setError] = useState('');
+  const query = useQuery({
+    queryKey: ['leadership-learning', employeeFilter, statusFilter, typeFilter],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (employeeFilter) params.set('employeeId', employeeFilter);
+      if (statusFilter) params.set('status', statusFilter);
+      if (typeFilter) params.set('type', typeFilter);
+      const search = params.toString();
+      return api.get<{ records: LearningRecord[] }>(`leadership/learning-records${search ? `?${search}` : ''}`);
+    },
+  });
+  const remove = useMutation({
+    mutationFn: (recordId: string) => api.delete(`leadership/learning-records/${recordId}`),
+    onSuccess: () => { setError(''); setConfirmDelete(null); qc.invalidateQueries({ queryKey: ['leadership-learning'] }); },
+    onError: (err: Error) => setError(err.message),
+  });
+  const records = query.data?.records ?? [];
+  const now = new Date();
+  const inNinetyDays = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+  const overdue = records.filter(record => ['planned', 'in_progress'].includes(record.status) && record.targetCompletionDate && new Date(record.targetCompletionDate) < now).length;
+  const expiring = records.filter(record => record.expiryDate && new Date(record.expiryDate) >= now && new Date(record.expiryDate) <= inNinetyDays).length;
+  const closeForm = () => { setError(''); setShowCreate(false); setEditRecord(null); };
+  const saved = () => { closeForm(); qc.invalidateQueries({ queryKey: ['leadership-learning'] }); };
+
+  return <div>
+    <div className="grid-4" style={{ marginBottom: 20 }}>
+      <StatCard label="In progress" value={records.filter(record => record.status === 'in_progress').length} color="var(--color-primary)" />
+      <StatCard label="Completed" value={records.filter(record => record.status === 'completed').length} color="var(--color-success)" />
+      <StatCard label="Overdue" value={overdue} color={overdue ? 'var(--color-danger)' : 'var(--gray-500)'} />
+      <StatCard label="Expiring in 90 days" value={expiring} color={expiring ? 'var(--color-warning)' : 'var(--gray-500)'} />
+    </div>
+    <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'end', flexWrap: 'wrap' }}>
+        <div style={{ minWidth: 210, flex: 1 }}><Select label="Editor" value={employeeFilter} onChange={event => setEmployeeFilter(event.target.value)} options={[{ value: '', label: 'All editors' }, ...users.map(user => ({ value: user.id, label: user.name }))]} /></div>
+        <div style={{ minWidth: 170 }}><Select label="Status" value={statusFilter} onChange={event => setStatusFilter(event.target.value)} options={[{ value: '', label: 'All statuses' }, ...LEARNING_STATUS_OPTIONS]} /></div>
+        <div style={{ minWidth: 170 }}><Select label="Type" value={typeFilter} onChange={event => setTypeFilter(event.target.value)} options={[{ value: '', label: 'All types' }, ...LEARNING_TYPE_OPTIONS]} /></div>
+        <Button variant="primary" onClick={() => { setError(''); setShowCreate(true); }}>+ Add L&D record</Button>
+      </div>
+    </div>
+    {error && <div style={{ marginBottom: 16 }}><Alert type="error">{error}</Alert></div>}
+    {query.isLoading && <div className="card" style={{ padding: 40, textAlign: 'center' }}><Spinner /></div>}
+    {query.isError && <QueryError message={query.error.message} onRetry={() => query.refetch()} />}
+    {!query.isLoading && !query.isError && records.length === 0 && <div className="card"><EmptyState icon="◇" title="No L&D records found" description="Track courses, certifications, workshops and other development activities for your editors." action={<Button variant="primary" onClick={() => setShowCreate(true)}>Add first L&D record</Button>} /></div>}
+    {!query.isLoading && records.map(record => {
+      const isOverdue = ['planned', 'in_progress'].includes(record.status) && !!record.targetCompletionDate && new Date(record.targetCompletionDate) < now;
+      const isExpiring = !!record.expiryDate && new Date(record.expiryDate) >= now && new Date(record.expiryDate) <= inNinetyDays;
+      return <div className="card" key={record.id} style={{ padding: '15px 18px', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 260 }}><div style={{ fontWeight: 600 }}>{record.title}</div><div style={{ color: 'var(--gray-500)', fontSize: '0.8125rem', marginTop: 4 }}>{record.employee.name} · {LEARNING_TYPE_OPTIONS.find(option => option.value === record.type)?.label ?? record.type}{record.provider ? ` · ${record.provider}` : ''}{record.skillArea ? ` · ${record.skillArea}` : ''}</div></div>
+          <span style={{ fontSize: '0.75rem', textTransform: 'capitalize', padding: '4px 9px', borderRadius: 12, background: record.status === 'completed' ? 'var(--color-success-light)' : record.status === 'in_progress' ? 'var(--color-info-light)' : 'var(--gray-100)' }}>{record.status.replace('_', ' ')}</span>
+          {isOverdue && <span style={{ color: 'var(--color-danger)', fontSize: '0.75rem', fontWeight: 600 }}>Overdue</span>}
+          {isExpiring && <span style={{ color: 'var(--color-warning)', fontSize: '0.75rem', fontWeight: 600 }}>Expiring soon</span>}
+          <Button variant="secondary" size="sm" onClick={() => { setError(''); setEditRecord(record); }}>Edit</Button>
+          <Button variant="danger" size="sm" onClick={() => setConfirmDelete(record)}>Delete</Button>
+        </div>
+        <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 10, color: 'var(--gray-500)', fontSize: '0.8125rem' }}><span>Start: {displayDate(record.startDate)}</span><span>Target: {displayDate(record.targetCompletionDate)}</span><span>Completed: {displayDate(record.completionDate)}</span>{record.expiryDate && <span>Expires: {displayDate(record.expiryDate)}</span>}<span>{record.learningHours} hour(s)</span>{record.evidenceUrl && <a href={record.evidenceUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-primary)' }}>Evidence ↗</a>}</div>
+        {record.notes && <div style={{ marginTop: 10, fontSize: '0.875rem', color: 'var(--gray-600)' }}>{record.notes}</div>}
+      </div>;
+    })}
+    {(showCreate || editRecord) && <LearningFormModal open users={users} record={editRecord ?? undefined} error={error} setError={setError} onClose={closeForm} onSaved={saved} />}
+    <ConfirmDialog open={!!confirmDelete} title="Delete L&D record" message={`Permanently delete “${confirmDelete?.title ?? 'this learning record'}”? This cannot be undone.`} confirmLabel="Delete" onConfirm={() => { if (confirmDelete) remove.mutate(confirmDelete.id); }} onCancel={() => setConfirmDelete(null)} />
+  </div>;
+}
+
+function LearningFormModal({ open, users, record, error, setError, onClose, onSaved }: { open: boolean; users: Person[]; record?: LearningRecord; error: string; setError: (value: string) => void; onClose: () => void; onSaved: () => void }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [employeeId, setEmployeeId] = useState(record?.employee.id ?? ''); const [title, setTitle] = useState(record?.title ?? ''); const [type, setType] = useState(record?.type ?? 'course'); const [provider, setProvider] = useState(record?.provider ?? ''); const [skillArea, setSkillArea] = useState(record?.skillArea ?? ''); const [status, setStatus] = useState(record?.status ?? 'planned'); const [startDate, setStartDate] = useState(record?.startDate?.slice(0, 10) ?? ''); const [targetDate, setTargetDate] = useState(record?.targetCompletionDate?.slice(0, 10) ?? ''); const [completionDate, setCompletionDate] = useState(record?.completionDate?.slice(0, 10) ?? ''); const [expiryDate, setExpiryDate] = useState(record?.expiryDate?.slice(0, 10) ?? ''); const [hours, setHours] = useState(String(record?.learningHours ?? 0)); const [evidenceUrl, setEvidenceUrl] = useState(record?.evidenceUrl ?? ''); const [notes, setNotes] = useState(record?.notes ?? '');
+  const save = useMutation({
+    mutationFn: () => { const body = { employeeId, title: title.trim(), type, provider: provider.trim() || undefined, skillArea: skillArea.trim() || undefined, status, startDate: startDate || undefined, targetCompletionDate: targetDate || undefined, completionDate: completionDate || undefined, expiryDate: expiryDate || undefined, learningHours: Number(hours) || 0, evidenceUrl: evidenceUrl.trim() || undefined, notes: notes.trim() || undefined }; return record ? api.patch(`leadership/learning-records/${record.id}`, body) : api.post('leadership/learning-records', body); },
+    onSuccess: onSaved, onError: (err: Error) => setError(err.message),
+  });
+  return <Modal open={open} onClose={onClose} title={record ? 'Edit L&D record' : 'Add L&D record'} maxWidth={720} footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button variant="primary" loading={save.isPending} onClick={() => { if (!employeeId || !title.trim()) { setError('Editor and title are required.'); return; } setError(''); save.mutate(); }}>Save record</Button></>}>
+    {error && <div style={{ marginBottom: 14 }}><Alert type="error">{error}</Alert></div>}
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+      <Select label="Editor" value={employeeId} onChange={event => { setEmployeeId(event.target.value); setError(''); }} options={[{ value: '', label: 'Select an editor' }, ...users.map(user => ({ value: user.id, label: `${user.name} (${user.email})` }))]} />
+      <Input label="Title" value={title} onChange={event => { setTitle(event.target.value); setError(''); }} placeholder="e.g. ISTQB Foundation" />
+      <Select label="Type" value={type} onChange={event => setType(event.target.value)} options={LEARNING_TYPE_OPTIONS} />
+      <Select label="Status" value={status} onChange={event => { const value = event.target.value; setStatus(value); if (value === 'completed' && !completionDate) setCompletionDate(today); }} options={LEARNING_STATUS_OPTIONS} />
+      <Input label="Provider" value={provider} onChange={event => setProvider(event.target.value)} placeholder="e.g. ISTQB, Coursera" />
+      <Input label="Skill area" value={skillArea} onChange={event => setSkillArea(event.target.value)} placeholder="e.g. Test automation" />
+      <Input label="Start date" type="date" value={startDate} onChange={event => setStartDate(event.target.value)} />
+      <Input label="Target completion" type="date" value={targetDate} onChange={event => setTargetDate(event.target.value)} />
+      <Input label="Completion date" type="date" max={today} value={completionDate} onChange={event => setCompletionDate(event.target.value)} />
+      <Input label="Certification expiry / renewal" type="date" value={expiryDate} onChange={event => setExpiryDate(event.target.value)} />
+      <Input label="Learning hours" type="number" min="0" step="0.5" value={hours} onChange={event => setHours(event.target.value)} />
+      <Input label="Evidence / certificate URL" type="url" value={evidenceUrl} onChange={event => setEvidenceUrl(event.target.value)} placeholder="https://..." />
+    </div>
+    <label className="label">Progress notes</label><textarea className="input" rows={4} value={notes} onChange={event => setNotes(event.target.value)} style={{ resize: 'vertical' }} />
+  </Modal>;
 }
 
 function ReviewEditor({ reviewId, onBack }: { reviewId: string; onBack: () => void }) {

@@ -33,6 +33,8 @@ model User {
   oneOnOnesAsReport LeadershipOneOnOne[] @relation("OneOnOneReport")
   leadershipReviews LeadershipReview[] @relation("LeadershipPresenter")
   leadershipEntries LeadershipReviewEntry[] @relation("LeadershipEmployee")
+  learningRecordsCreated LeadershipLearningRecord[] @relation("LearningRecordCreator")
+  learningRecordsAsReport LeadershipLearningRecord[] @relation("LearningRecordEmployee")
 }
 
 model Project {
@@ -398,6 +400,33 @@ model LeadershipOneOnOne {
 
   @@index([leadId, meetingDate])
   @@index([reportId, meetingDate])
+}
+
+model LeadershipLearningRecord {
+  id                   String    @id @default(uuid())
+  createdById          String
+  employeeId           String
+  title                String
+  type                 String
+  provider             String?
+  skillArea            String?
+  status               String    @default("planned")
+  startDate            DateTime? @db.Date
+  targetCompletionDate DateTime? @db.Date
+  completionDate       DateTime? @db.Date
+  expiryDate           DateTime? @db.Date
+  learningHours        Float     @default(0)
+  evidenceUrl          String?
+  notes                String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  createdBy User @relation("LearningRecordCreator", fields: [createdById], references: [id])
+  employee  User @relation("LearningRecordEmployee", fields: [employeeId], references: [id])
+
+  @@index([createdById, status])
+  @@index([employeeId, status])
+  @@index([expiryDate])
 }
 
 model LeadershipReview {

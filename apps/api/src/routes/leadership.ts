@@ -34,6 +34,29 @@ const OneOnOneQuerySchema = z.object({
   to: z.string().date().optional(),
 });
 
+const LEARNING_TYPES = ['course', 'certification', 'workshop', 'conference', 'mentorship'] as const;
+const LEARNING_STATUSES = ['planned', 'in_progress', 'completed', 'paused', 'cancelled'] as const;
+const LearningRecordSchema = z.object({
+  employeeId: z.string().uuid(),
+  title: z.string().trim().min(1).max(300),
+  type: z.enum(LEARNING_TYPES),
+  provider: z.string().trim().max(300).optional(),
+  skillArea: z.string().trim().max(300).optional(),
+  status: z.enum(LEARNING_STATUSES),
+  startDate: z.string().date().optional(),
+  targetCompletionDate: z.string().date().optional(),
+  completionDate: z.string().date().optional(),
+  expiryDate: z.string().date().optional(),
+  learningHours: z.number().min(0).max(10000),
+  evidenceUrl: z.string().url().max(2048).optional(),
+  notes: z.string().trim().max(10000).optional(),
+});
+const LearningQuerySchema = z.object({
+  employeeId: z.string().uuid().optional(),
+  status: z.enum(LEARNING_STATUSES).optional(),
+  type: z.enum(LEARNING_TYPES).optional(),
+});
+
 const ReviewUpdateSchema = z.object({
   status: z.enum(['draft', 'ready', 'presented', 'closed']).optional(),
   department: z.string().trim().min(1).max(200).optional(),
@@ -195,6 +218,78 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
     return reply.code(204).send();
   });
 
+  app.get('/learning-records', async req => {
+    const { userId } = req.user as { userId: string };
+    const query = LearningQuerySchema.parse(req.query);
+    return {
+      records: await prisma.leadershipLearningRecord.findMany({
+        where: { createdById: userId, ...(query.employeeId && { employeeId: query.employeeId }), ...(query.status && { status: query.status }), ...(query.type && { type: query.type }) },
+        include: { employee: { select: { id: true, name: true, email: true } } },
+        orderBy: [{ status: 'asc' }, { targetCompletionDate: 'asc' }, { createdAt: 'desc' }],
+      }),
+    };
+  });
+
+  app.get('/learning-records/:recordId', async (req, reply) => {
+    const { userId } = req.user as { userId: string };
+    const { recordId } = req.params as { recordId: string };
+    const record = await prisma.leadershipLearningRecord.findFirst({ where: { id: recordId, createdById: userId }, include: { employee: { select: { id: true, name: true, email: true } } } });
+    if (!record) return reply.code(404).send({ error: 'Learning record not found' });
+    return record;
+  });
+
+  app.post('/learning-records', async (req, reply) => {
+    const { userId } = req.user as { userId: string };
+    const body = LearningRecordSchema.parse(req.body);
+    const employee = await prisma.user.findFirst({ where: { id: body.employeeId, ...editorDirectReportWhere }, select: { id: true } });
+    if (!employee) return reply.code(400).send({ error: 'L&D records can only be created for activated editors' });
+    const record = await prisma.leadershipLearningRecord.create({
+      data: {
+        createdById: userId, employeeId: body.employeeId, title: body.title, type: body.type,
+        provider: body.provider || null, skillArea: body.skillArea || null, status: body.status,
+        startDate: body.startDate ? new Date(body.startDate) : null,
+        targetCompletionDate: body.targetCompletionDate ? new Date(body.targetCompletionDate) : null,
+        completionDate: body.completionDate ? new Date(body.completionDate) : null,
+        expiryDate: body.expiryDate ? new Date(body.expiryDate) : null,
+        learningHours: body.learningHours, evidenceUrl: body.evidenceUrl || null, notes: body.notes || null,
+      },
+      include: { employee: { select: { id: true, name: true, email: true } } },
+    });
+    return reply.code(201).send(record);
+  });
+
+  app.patch('/learning-records/:recordId', async (req, reply) => {
+    const { userId } = req.user as { userId: string };
+    const { recordId } = req.params as { recordId: string };
+    const body = LearningRecordSchema.parse(req.body);
+    const existing = await prisma.leadershipLearningRecord.findFirst({ where: { id: recordId, createdById: userId }, select: { id: true } });
+    if (!existing) return reply.code(404).send({ error: 'Learning record not found' });
+    const employee = await prisma.user.findFirst({ where: { id: body.employeeId, ...editorDirectReportWhere }, select: { id: true } });
+    if (!employee) return reply.code(400).send({ error: 'L&D records can only be created for activated editors' });
+    return prisma.leadershipLearningRecord.update({
+      where: { id: recordId },
+      data: {
+        employeeId: body.employeeId, title: body.title, type: body.type, provider: body.provider || null,
+        skillArea: body.skillArea || null, status: body.status,
+        startDate: body.startDate ? new Date(body.startDate) : null,
+        targetCompletionDate: body.targetCompletionDate ? new Date(body.targetCompletionDate) : null,
+        completionDate: body.completionDate ? new Date(body.completionDate) : null,
+        expiryDate: body.expiryDate ? new Date(body.expiryDate) : null,
+        learningHours: body.learningHours, evidenceUrl: body.evidenceUrl || null, notes: body.notes || null,
+      },
+      include: { employee: { select: { id: true, name: true, email: true } } },
+    });
+  });
+
+  app.delete('/learning-records/:recordId', async (req, reply) => {
+    const { userId } = req.user as { userId: string };
+    const { recordId } = req.params as { recordId: string };
+    const existing = await prisma.leadershipLearningRecord.findFirst({ where: { id: recordId, createdById: userId }, select: { id: true } });
+    if (!existing) return reply.code(404).send({ error: 'Learning record not found' });
+    await prisma.leadershipLearningRecord.delete({ where: { id: recordId } });
+    return reply.code(204).send();
+  });
+
   app.get('/reviews', async req => {
     const { userId } = req.user as { userId: string };
     return {
@@ -211,7 +306,7 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
     if (users.length !== new Set(body.reportIds).size) return reply.code(400).send({ error: 'All direct reports must be activated editors' });
     const periodStart = new Date(body.reportingPeriod);
     const periodEnd = nextMonth(periodStart);
-    const [meetings, activities, activePlans] = await Promise.all([
+    const [meetings, activities, activePlans, learningRecords] = await Promise.all([
       prisma.leadershipOneOnOne.findMany({
         where: { leadId: userId, reportId: { in: body.reportIds }, meetingDate: { gte: periodStart, lt: periodEnd } },
         orderBy: { meetingDate: 'desc' },
@@ -225,6 +320,10 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
         select: { name: true, milestone: true, endsAt: true, createdById: true, project: { select: { name: true } } },
         orderBy: { endsAt: 'asc' }, take: 50,
       }),
+      prisma.leadershipLearningRecord.findMany({
+        where: { createdById: userId, employeeId: { in: body.reportIds } },
+        orderBy: { updatedAt: 'desc' }, take: 200,
+      }),
     ]);
     const userById = new Map(users.map(user => [user.id, user]));
     const activitiesByUser = new Map<string, typeof activities>();
@@ -233,12 +332,19 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
     meetings.forEach(meeting => meetingsByUser.set(meeting.reportId, [...(meetingsByUser.get(meeting.reportId) ?? []), meeting]));
     const plansByUser = new Map<string, typeof activePlans>();
     activePlans.forEach(plan => plansByUser.set(plan.createdById, [...(plansByUser.get(plan.createdById) ?? []), plan]));
+    const learningByUser = new Map<string, typeof learningRecords>();
+    learningRecords.forEach(record => learningByUser.set(record.employeeId, [...(learningByUser.get(record.employeeId) ?? []), record]));
     const describeActivity = (activity: typeof activities[number]) => `${activityLabel[activity.action] ?? activity.action}${activity.entityName ? `: ${activity.entityName}` : ''}${activity.projectName ? ` (${activity.projectName})` : ''}`;
+    const describeLearning = (record: typeof learningRecords[number]) => `${record.title}${record.provider ? ` — ${record.provider}` : ''} (${record.status.replace('_', ' ')})`;
     const unitHighlights = uniqueBullets(users.flatMap(user => [
       ...(meetingsByUser.get(user.id) ?? []).flatMap(meeting => stringList(meeting.wins).map(win => `${user.name}: ${win}`)),
       ...(activitiesByUser.get(user.id) ?? []).map(activity => `${user.name}: ${describeActivity(activity)}`),
+      ...(learningByUser.get(user.id) ?? []).filter(record => record.status === 'completed' && record.completionDate && record.completionDate >= periodStart && record.completionDate < periodEnd).map(record => `${user.name}: completed ${record.title}`),
     ]));
-    const nextPeriodFocus = uniqueBullets(activePlans.map(plan => `${userById.get(plan.createdById)?.name ?? 'Team'}: ${plan.name}${plan.milestone ? ` — ${plan.milestone}` : ''} (${plan.project.name})`));
+    const nextPeriodFocus = uniqueBullets([
+      ...activePlans.map(plan => `${userById.get(plan.createdById)?.name ?? 'Team'}: ${plan.name}${plan.milestone ? ` — ${plan.milestone}` : ''} (${plan.project.name})`),
+      ...users.flatMap(user => (learningByUser.get(user.id) ?? []).filter(record => ['planned', 'in_progress'].includes(record.status)).map(record => `${user.name}: ${describeLearning(record)}`)),
+    ]);
     const workingFeedback = uniqueBullets(users.flatMap(user => (meetingsByUser.get(user.id) ?? []).flatMap(meeting => stringList(meeting.managerFeedback).map(item => `${user.name}: ${item}`))));
     const challengesSupport = uniqueBullets(users.flatMap(user => (meetingsByUser.get(user.id) ?? []).flatMap(meeting => stringList(meeting.challenges).map(item => `${user.name}: ${item}`))));
     const decisionsActions = meetings.flatMap(meeting => actionList(meeting.actions).filter(action => action.status !== 'done').map(action => ({ ...action, owner: action.owner || userById.get(meeting.reportId)?.name, status: action.status === 'done' ? 'done' as const : 'open' as const }))).slice(0, 30);
@@ -257,6 +363,8 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
           const userMeetings = meetingsByUser.get(user.id) ?? [];
           const userActivities = activitiesByUser.get(user.id) ?? [];
           const userPlans = plansByUser.get(user.id) ?? [];
+          const userLearning = learningByUser.get(user.id) ?? [];
+          const periodLearning = userLearning.filter(record => ['planned', 'in_progress'].includes(record.status) || (record.completionDate && record.completionDate >= periodStart && record.completionDate < periodEnd));
           return {
             employeeId: user.id, teamUnit: body.unitName,
             tasksAchieved: uniqueBullets([
@@ -265,8 +373,12 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
             ]),
             inProgress: uniqueBullets(userPlans.map(plan => `${plan.name}${plan.milestone ? ` — ${plan.milestone}` : ''}${plan.endsAt ? ` · due ${plan.endsAt.toISOString().slice(0, 10)}` : ''}`)),
             oneOnOneSummary: uniqueBullets(userMeetings.flatMap(meeting => meeting.presentationSummary ? [meeting.presentationSummary] : stringList(meeting.discussionPoints))),
-            learningDevelopment: uniqueBullets(userMeetings.flatMap(meeting => stringList(meeting.learningDevelopment))),
+            learningDevelopment: uniqueBullets([
+              ...periodLearning.map(describeLearning),
+              ...userMeetings.flatMap(meeting => stringList(meeting.learningDevelopment)),
+            ]),
             managerFeedback: uniqueBullets(userMeetings.flatMap(meeting => stringList(meeting.managerFeedback))),
+            ldHours: userLearning.filter(record => record.status === 'completed' && record.completionDate && record.completionDate >= periodStart && record.completionDate < periodEnd).reduce((sum, record) => sum + record.learningHours, 0),
           };
         }) },
       },
