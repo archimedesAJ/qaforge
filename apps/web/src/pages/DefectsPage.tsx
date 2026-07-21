@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react';
+import { useRef, useState, FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '../components/shared/AppLayout';
@@ -579,22 +579,27 @@ function CreateDefectModal({
   const [notes, setNotes]             = useState('');
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
   const [error, setError]             = useState('');
+  const requestId = useRef(crypto.randomUUID());
+  const submitting = useRef(false);
 
   const mutation = useMutation({
     mutationFn: () => api.post(`projects/${projectId}/defects`, {
+      clientRequestId: requestId.current,
       title, tracker, severity,
       externalRef: ref.trim() || undefined,
       notes: notes.trim() || undefined,
       attachments,
     }),
     onSuccess: onCreated,
-    onError: (err: Error) => setError(err.message),
+    onError: (err: Error) => { submitting.current = false; setError(err.message); },
   });
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (submitting.current) return;
     setError('');
     if (!title.trim()) { setError('Title is required'); return; }
+    submitting.current = true;
     mutation.mutate();
   }
 
@@ -606,7 +611,7 @@ function CreateDefectModal({
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" loading={mutation.isPending} onClick={handleSubmit as () => void}>
+          <Button variant="primary" loading={mutation.isPending} disabled={submitting.current} onClick={handleSubmit as () => void}>
             File defect
           </Button>
         </>

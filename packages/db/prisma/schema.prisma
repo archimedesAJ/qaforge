@@ -274,8 +274,9 @@ model RunResult {
 }
 
 model Defect {
-  id          String    @id @default(uuid())
-  projectId   String
+  id              String  @id @default(uuid())
+  clientRequestId String? @unique
+  projectId       String
   runResultId Int?
   title       String?
   tracker     String    // jira | github | linear | internal
@@ -293,7 +294,6 @@ model Defect {
   @@index([projectId])
   @@index([runResultId])
 }
-
 model ActivityLog {
   id          String   @id @default(uuid())
   userId      String

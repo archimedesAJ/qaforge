@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticate, requireProjectCapability, requireRole } from '../middleware/auth.js';
@@ -15,6 +16,7 @@ const AttachmentSchema = z.object({
 });
 
 const CreateDefectSchema = z.object({
+  clientRequestId: z.string().uuid().optional(),
   title:       z.string().min(1),
   tracker:     z.enum(VALID_TRACKERS),
   severity:    z.enum(VALID_SEVERITIES).default('medium'),
@@ -100,19 +102,28 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
     const { isSystemAdmin } = req as { isSystemAdmin?: boolean };
     const body = CreateDefectSchema.parse(req.body);
 
-    const defect = await prisma.defect.create({
-      data: {
-        projectId,
-        title:       body.title.trim(),
-        tracker:     body.tracker,
-        severity:    body.severity,
-        externalRef: body.externalRef?.trim() || null,
-        notes:       body.notes?.trim() || null,
-        attachments: body.attachments ?? [],
-        status:      'open',
-      },
-      include: DEFECT_INCLUDE,
-    });
+    let defect;
+    try {
+      defect = await prisma.defect.create({
+        data: {
+          clientRequestId: body.clientRequestId,
+          projectId,
+          title:       body.title.trim(),
+          tracker:     body.tracker,
+          severity:    body.severity,
+          externalRef: body.externalRef?.trim() || null,
+          notes:       body.notes?.trim() || null,
+          attachments: body.attachments ?? [],
+          status:      'open',
+        },
+        include: DEFECT_INCLUDE,
+      });
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002' || !body.clientRequestId) throw error;
+      defect = await prisma.defect.findUnique({ where: { clientRequestId: body.clientRequestId }, include: DEFECT_INCLUDE });
+      if (!defect || defect.projectId !== projectId || defect.runResultId !== null) throw error;
+      return reply.code(200).send(defect);
+    }
 
     logActivity({ userId, isSystemAdmin, projectId, action: 'defect_filed', entityType: 'defect', entityId: defect.id, entityName: defect.title ?? undefined });
 
@@ -200,20 +211,29 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
     if (result.run.projectId !== projectId) return reply.code(403).send({ error: 'Forbidden' });
     if (result.status === 'pass') return reply.code(400).send({ error: 'Cannot file a defect against a passing result' });
 
-    const defect = await prisma.defect.create({
-      data: {
-        projectId,
-        runResultId: result.id,
-        title:       body.title.trim(),
-        tracker:     body.tracker,
-        severity:    body.severity,
-        externalRef: body.externalRef?.trim() || null,
-        notes:       body.notes?.trim() || null,
-        attachments: body.attachments ?? [],
-        status:      'open',
-      },
-      include: DEFECT_INCLUDE,
-    });
+    let defect;
+    try {
+      defect = await prisma.defect.create({
+        data: {
+          clientRequestId: body.clientRequestId,
+          projectId,
+          runResultId: result.id,
+          title:       body.title.trim(),
+          tracker:     body.tracker,
+          severity:    body.severity,
+          externalRef: body.externalRef?.trim() || null,
+          notes:       body.notes?.trim() || null,
+          attachments: body.attachments ?? [],
+          status:      'open',
+        },
+        include: DEFECT_INCLUDE,
+      });
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002' || !body.clientRequestId) throw error;
+      defect = await prisma.defect.findUnique({ where: { clientRequestId: body.clientRequestId }, include: DEFECT_INCLUDE });
+      if (!defect || defect.projectId !== projectId || defect.runResultId !== result.id) throw error;
+      return reply.code(200).send(defect);
+    }
 
     logActivity({ userId, isSystemAdmin, projectId, action: 'defect_filed', entityType: 'defect', entityId: defect.id, entityName: defect.title ?? undefined });
 

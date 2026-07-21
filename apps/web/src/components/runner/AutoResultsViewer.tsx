@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, Modal, Input, Select, Spinner, EmptyState, StatCard, Alert, ConfirmDialog } from '../shared/ui';
 import { api } from '../../lib/api';
@@ -102,6 +102,8 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
   const [defectAttachments, setDefectAttachments] = useState<AttachmentItem[]>([]);
   const [defectError, setDefectError]             = useState('');
   const [confirmRemoveDefectId, setConfirmRemoveDefectId] = useState<string | null>(null);
+  const defectRequestId = useRef(crypto.randomUUID());
+  const defectSubmitting = useRef(false);
 
   const { data: runDetail } = useQuery({
     queryKey: ['run', runId],
@@ -120,14 +122,15 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
 
   // ── Defect mutations ─────────────────────────────────────────
   const fileDefect = useMutation({
-    mutationFn: (body: { title: string; tracker: string; externalRef?: string; notes?: string; attachments?: AttachmentItem[] }) =>
+    mutationFn: (body: { clientRequestId: string; title: string; tracker: string; externalRef?: string; notes?: string; attachments?: AttachmentItem[] }) =>
       api.post<Defect>(`projects/${projectId}/results/${filingFor!.id}/defect`, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['run-results', runId] });
+      defectSubmitting.current = false;
       setFilingFor(null);
       setDefectTitle(''); setDefectTracker('jira'); setDefectRef(''); setDefectNotes(''); setDefectAttachments([]); setDefectError('');
     },
-    onError: (err: Error) => setDefectError(err.message),
+    onError: (err: Error) => { defectSubmitting.current = false; setDefectError(err.message); },
   });
 
   const updateDefect = useMutation({
@@ -595,7 +598,7 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
                       );
                     })}
                     <button
-                      onClick={e => { e.stopPropagation(); setFilingFor(result); setDefectTitle(result.testCase?.title ?? ''); setDefectTracker('jira'); setDefectRef(''); setDefectNotes(''); setDefectAttachments([]); setDefectError(''); }}
+                      onClick={e => { e.stopPropagation(); defectRequestId.current = crypto.randomUUID(); defectSubmitting.current = false; setFilingFor(result); setDefectTitle(result.testCase?.title ?? ''); setDefectTracker('jira'); setDefectRef(''); setDefectNotes(''); setDefectAttachments([]); setDefectError(''); }}
                       style={{
                         background: 'none', border: '1px dashed var(--border-color)', borderRadius: 5,
                         color: 'var(--gray-400)', fontSize: '0.8125rem', padding: '3px 10px', cursor: 'pointer',
@@ -726,10 +729,14 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
             <Button
               variant="primary"
               loading={fileDefect.isPending}
+              disabled={defectSubmitting.current}
               onClick={() => {
+                if (defectSubmitting.current) return;
                 setDefectError('');
                 if (!defectTitle.trim()) { setDefectError('Title is required'); return; }
+                defectSubmitting.current = true;
                 fileDefect.mutate({
+                  clientRequestId: defectRequestId.current,
                   title:       defectTitle.trim(),
                   tracker:     defectTracker,
                   externalRef: defectRef.trim() || undefined,
