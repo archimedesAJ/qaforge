@@ -105,6 +105,16 @@ export function LeadershipReviewsPage() {
   );
   const reviews = reviewsQuery.data?.reviews ?? [];
   const meetings = meetingsQuery.data?.meetings ?? [];
+  const meetingGroups = [...meetings.reduce((groups, meeting) => {
+    const month = meeting.meetingDate.slice(0, 7);
+    const key = `${meeting.report.id}:${month}`;
+    const group = groups.get(key) ?? { key, month, report: meeting.report, meetings: [] as Meeting[] };
+    group.meetings.push(meeting);
+    groups.set(key, group);
+    return groups;
+  }, new Map<string, { key: string; month: string; report: Person; meetings: Meeting[] }>()).values()]
+    .map(group => ({ ...group, meetings: group.meetings.sort((a, b) => a.meetingDate.localeCompare(b.meetingDate)) }))
+    .sort((a, b) => b.meetings[b.meetings.length - 1].meetingDate.localeCompare(a.meetings[a.meetings.length - 1].meetingDate));
 
   return <AppLayout title="Leadership Reviews" actions={<div style={{ display: 'flex', gap: 8 }}>
     <Button variant="secondary" size="sm" onClick={() => { setError(''); setShowMeeting(true); }}>+ Record one-on-one</Button>
@@ -142,13 +152,19 @@ export function LeadershipReviewsPage() {
           </div>
         </div>
       </div>
-      <div className="card">
+      <div>
         {error && !showMeeting && !editMeeting && <div style={{ padding: 16 }}><Alert type="error">{error}</Alert></div>}
         {meetingsQuery.isError && <QueryError message={meetingsQuery.error.message} onRetry={() => meetingsQuery.refetch()} />}
         {!meetingsQuery.isError && meetings.length === 0 && <EmptyState icon="◉" title="No one-on-ones found" description={meetingDates.from || meetingDates.to ? 'No meetings were recorded in the selected date range.' : 'Record the first meeting with an editor direct report.'} action={<Button variant="primary" onClick={() => setShowMeeting(true)}>Record one-on-one</Button>} />}
-        {meetings.map(meeting => <div key={meeting.id} style={{ padding: '14px 18px', borderBottom: '1px solid var(--border-color)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}><div style={{ flex: 1 }}><strong>{meeting.report.name} 1:1</strong><div style={{ color: 'var(--gray-500)', fontSize: '0.8125rem', marginTop: 3 }}>Meeting: {new Date(meeting.meetingDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })} · Next: {meeting.nextMeetingDate ? new Date(meeting.nextMeetingDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Not scheduled'}</div></div><Button variant="ghost" size="sm" onClick={() => setViewMeeting(meeting)}>View</Button><Button variant="secondary" size="sm" onClick={() => { setError(''); setEditMeeting(meeting); }}>Edit</Button><Button variant="danger" size="sm" loading={deleteMeeting.isPending && deleteMeeting.variables === meeting.id} onClick={() => { setError(''); setConfirmDeleteMeeting(meeting); }}>Delete</Button></div>
-          {meeting.presentationSummary && <div style={{ marginTop: 6, fontSize: '0.875rem', color: 'var(--gray-600)' }}>{meeting.presentationSummary}</div>}
+        {meetingGroups.map(group => <div className="card" key={group.key} style={{ marginBottom: 16, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '14px 18px', background: 'var(--gray-50)', borderBottom: '1px solid var(--border-color)' }}>
+            <strong>{group.report.name} 1:1</strong>
+            <span style={{ color: 'var(--gray-500)', fontSize: '0.8125rem' }}>{new Date(`${group.month}-01T00:00:00Z`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' })} · {group.meetings.length} {group.meetings.length === 1 ? 'session' : 'sessions'}</span>
+          </div>
+          {group.meetings.map((meeting, index) => <div key={meeting.id} style={{ padding: '13px 18px', borderBottom: index < group.meetings.length - 1 ? '1px solid var(--border-color)' : 'none' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}><div style={{ flex: 1 }}><div style={{ fontWeight: 600, fontSize: '0.875rem' }}>Session {index + 1}</div><div style={{ color: 'var(--gray-500)', fontSize: '0.8125rem', marginTop: 3 }}>Meeting: {new Date(meeting.meetingDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })} · Next: {meeting.nextMeetingDate ? new Date(meeting.nextMeetingDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Not scheduled'}</div></div><Button variant="ghost" size="sm" onClick={() => setViewMeeting(meeting)}>View</Button><Button variant="secondary" size="sm" onClick={() => { setError(''); setEditMeeting(meeting); }}>Edit</Button><Button variant="danger" size="sm" loading={deleteMeeting.isPending && deleteMeeting.variables === meeting.id} onClick={() => { setError(''); setConfirmDeleteMeeting(meeting); }}>Delete</Button></div>
+            {meeting.presentationSummary && <div style={{ marginTop: 6, fontSize: '0.875rem', color: 'var(--gray-600)' }}>{meeting.presentationSummary}</div>}
+          </div>)}
         </div>)}
       </div></>}
     </div>
