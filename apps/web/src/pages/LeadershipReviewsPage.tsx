@@ -277,6 +277,13 @@ function LearningTracker({ users }: { users: Person[] }) {
     onError: (err: Error) => setError(err.message),
   });
   const records = query.data?.records ?? [];
+  const recordGroups = [...records.reduce((groups, record) => {
+    const group = groups.get(record.employee.id) ?? { employee: record.employee, records: [] as LearningRecord[] };
+    group.records.push(record);
+    groups.set(record.employee.id, group);
+    return groups;
+  }, new Map<string, { employee: Person; records: LearningRecord[] }>()).values()]
+    .sort((a, b) => a.employee.name.localeCompare(b.employee.name));
   const now = new Date();
   const inNinetyDays = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
   const overdue = records.filter(record => ['planned', 'in_progress'].includes(record.status) && record.targetCompletionDate && new Date(record.targetCompletionDate) < now).length;
@@ -292,33 +299,39 @@ function LearningTracker({ users }: { users: Person[] }) {
       <StatCard label="Expiring in 90 days" value={expiring} color={expiring ? 'var(--color-warning)' : 'var(--gray-500)'} />
     </div>
     <div className="card" style={{ padding: 16, marginBottom: 16 }}>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'end', flexWrap: 'wrap' }}>
+      <div className="leadership-learning-filter">
         <div style={{ minWidth: 210, flex: 1 }}><Select label="Editor" value={employeeFilter} onChange={event => setEmployeeFilter(event.target.value)} options={[{ value: '', label: 'All editors' }, ...users.map(user => ({ value: user.id, label: user.name }))]} /></div>
         <div style={{ minWidth: 170 }}><Select label="Status" value={statusFilter} onChange={event => setStatusFilter(event.target.value)} options={[{ value: '', label: 'All statuses' }, ...LEARNING_STATUS_OPTIONS]} /></div>
         <div style={{ minWidth: 170 }}><Select label="Type" value={typeFilter} onChange={event => setTypeFilter(event.target.value)} options={[{ value: '', label: 'All types' }, ...LEARNING_TYPE_OPTIONS]} /></div>
-        <Button variant="primary" onClick={() => { setError(''); setShowCreate(true); }}>+ Add L&D record</Button>
+        <div className="leadership-learning-actions"><Button variant="primary" onClick={() => { setError(''); setShowCreate(true); }}>+ Add L&D record</Button></div>
       </div>
     </div>
     {error && <div style={{ marginBottom: 16 }}><Alert type="error">{error}</Alert></div>}
     {query.isLoading && <div className="card" style={{ padding: 40, textAlign: 'center' }}><Spinner /></div>}
     {query.isError && <QueryError message={query.error.message} onRetry={() => query.refetch()} />}
     {!query.isLoading && !query.isError && records.length === 0 && <div className="card"><EmptyState icon="◇" title="No L&D records found" description="Track courses, certifications, workshops and other development activities for your editors." action={<Button variant="primary" onClick={() => setShowCreate(true)}>Add first L&D record</Button>} /></div>}
-    {!query.isLoading && records.map(record => {
-      const isOverdue = ['planned', 'in_progress'].includes(record.status) && !!record.targetCompletionDate && new Date(record.targetCompletionDate) < now;
-      const isExpiring = !!record.expiryDate && new Date(record.expiryDate) >= now && new Date(record.expiryDate) <= inNinetyDays;
-      return <div className="card" key={record.id} style={{ padding: '15px 18px', marginBottom: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ flex: 1, minWidth: 260 }}><div style={{ fontWeight: 600 }}>{record.title}</div><div style={{ color: 'var(--gray-500)', fontSize: '0.8125rem', marginTop: 4 }}>{record.employee.name} · {LEARNING_TYPE_OPTIONS.find(option => option.value === record.type)?.label ?? record.type}{record.provider ? ` · ${record.provider}` : ''}{record.skillArea ? ` · ${record.skillArea}` : ''}</div></div>
-          <span style={{ fontSize: '0.75rem', textTransform: 'capitalize', padding: '4px 9px', borderRadius: 12, background: record.status === 'completed' ? 'var(--color-success-light)' : record.status === 'in_progress' ? 'var(--color-info-light)' : 'var(--gray-100)' }}>{record.status.replace('_', ' ')}</span>
-          {isOverdue && <span style={{ color: 'var(--color-danger)', fontSize: '0.75rem', fontWeight: 600 }}>Overdue</span>}
-          {isExpiring && <span style={{ color: 'var(--color-warning)', fontSize: '0.75rem', fontWeight: 600 }}>Expiring soon</span>}
-          <Button variant="secondary" size="sm" onClick={() => { setError(''); setEditRecord(record); }}>Edit</Button>
-          <Button variant="danger" size="sm" onClick={() => setConfirmDelete(record)}>Delete</Button>
-        </div>
-        <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 10, color: 'var(--gray-500)', fontSize: '0.8125rem' }}><span>Start: {displayDate(record.startDate)}</span><span>Target: {displayDate(record.targetCompletionDate)}</span><span>Completed: {displayDate(record.completionDate)}</span>{record.expiryDate && <span>Expires: {displayDate(record.expiryDate)}</span>}<span>{record.learningHours} hour(s)</span>{record.evidenceUrl && <a href={record.evidenceUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-primary)' }}>Evidence ↗</a>}</div>
-        {record.notes && <div style={{ marginTop: 10, fontSize: '0.875rem', color: 'var(--gray-600)' }}>{record.notes}</div>}
-      </div>;
-    })}
+    {!query.isLoading && recordGroups.map(group => <div className="card" key={group.employee.id} style={{ marginBottom: 16, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '14px 18px', background: 'var(--gray-50)', borderBottom: '1px solid var(--border-color)' }}>
+        <div><strong>{group.employee.name}</strong><div style={{ color: 'var(--gray-500)', fontSize: '0.8125rem', marginTop: 3 }}>{group.employee.email}</div></div>
+        <span style={{ color: 'var(--gray-500)', fontSize: '0.8125rem' }}>{group.records.length} {group.records.length === 1 ? 'record' : 'records'}</span>
+      </div>
+      {group.records.map((record, index) => {
+        const isOverdue = ['planned', 'in_progress'].includes(record.status) && !!record.targetCompletionDate && new Date(record.targetCompletionDate) < now;
+        const isExpiring = !!record.expiryDate && new Date(record.expiryDate) >= now && new Date(record.expiryDate) <= inNinetyDays;
+        return <div key={record.id} style={{ padding: '15px 18px', borderBottom: index < group.records.length - 1 ? '1px solid var(--border-color)' : 'none' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 260 }}><div style={{ fontWeight: 600 }}>{record.title}</div><div style={{ color: 'var(--gray-500)', fontSize: '0.8125rem', marginTop: 4 }}>{LEARNING_TYPE_OPTIONS.find(option => option.value === record.type)?.label ?? record.type}{record.provider ? ` · ${record.provider}` : ''}{record.skillArea ? ` · ${record.skillArea}` : ''}</div></div>
+            <span style={{ fontSize: '0.75rem', textTransform: 'capitalize', padding: '4px 9px', borderRadius: 12, background: record.status === 'completed' ? 'var(--color-success-light)' : record.status === 'in_progress' ? 'var(--color-info-light)' : 'var(--gray-100)' }}>{record.status.replace('_', ' ')}</span>
+            {isOverdue && <span style={{ color: 'var(--color-danger)', fontSize: '0.75rem', fontWeight: 600 }}>Overdue</span>}
+            {isExpiring && <span style={{ color: 'var(--color-warning)', fontSize: '0.75rem', fontWeight: 600 }}>Expiring soon</span>}
+            <Button variant="secondary" size="sm" onClick={() => { setError(''); setEditRecord(record); }}>Edit</Button>
+            <Button variant="danger" size="sm" onClick={() => setConfirmDelete(record)}>Delete</Button>
+          </div>
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 10, color: 'var(--gray-500)', fontSize: '0.8125rem' }}><span>Start: {displayDate(record.startDate)}</span><span>Target: {displayDate(record.targetCompletionDate)}</span><span>Completed: {displayDate(record.completionDate)}</span>{record.expiryDate && <span>Expires: {displayDate(record.expiryDate)}</span>}<span>{record.learningHours} hour(s)</span>{record.evidenceUrl && <a href={record.evidenceUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-primary)' }}>Evidence ↗</a>}</div>
+          {record.notes && <div style={{ marginTop: 10, fontSize: '0.875rem', color: 'var(--gray-600)' }}>{record.notes}</div>}
+        </div>;
+      })}
+    </div>)}
     {(showCreate || editRecord) && <LearningFormModal open users={users} record={editRecord ?? undefined} error={error} setError={setError} onClose={closeForm} onSaved={saved} />}
     <ConfirmDialog open={!!confirmDelete} title="Delete L&D record" message={`Permanently delete “${confirmDelete?.title ?? 'this learning record'}”? This cannot be undone.`} confirmLabel="Delete" onConfirm={() => { if (confirmDelete) remove.mutate(confirmDelete.id); }} onCancel={() => setConfirmDelete(null)} />
   </div>;

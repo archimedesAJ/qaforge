@@ -120,9 +120,23 @@ p  { color: var(--gray-600); line-height: 1.6; }
   gap: 8px;
 }
 
+.leadership-learning-filter {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.leadership-learning-filter .field { margin-bottom: 0; }
+.leadership-learning-actions {
+  display: flex;
+  align-items: center;
+}
+
 @media (max-width: 640px) {
   .leadership-date-field { flex: 1 1 100%; }
   .leadership-date-actions { width: 100%; }
+  .leadership-learning-filter > div { flex: 1 1 100% !important; }
+  .leadership-learning-actions .btn { width: 100%; justify-content: center; }
 }
 
 /* ── Buttons ─────────────────────────────────────────────── */
