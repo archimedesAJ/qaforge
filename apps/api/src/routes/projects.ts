@@ -774,24 +774,41 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
       { label: 'current', gte: sinceDate, lte: untilDate },
     ];
 
-    // Total active cases — constant across periods
-    const [totalCases, staleCases, totalProjects] = await Promise.all([
-      prisma.testCase.count({ where: { archived: false } }),
-      prisma.coverageSnapshot.count({ where: { state: 'stale' } }),
-      prisma.project.count(),
-    ]);
-
     async function computePeriod(gte: Date, lte: Date) {
+      // Keep KPI scope consistent with Weekly Summary: only projects with at
+      // least one reporting activity in this period belong in the denominator.
+      const [runsStarted, runsClosed, casesCreated, defectsFiled, defectsResolved, plansCreated] = await Promise.all([
+        prisma.testRun.groupBy({ by: ['projectId'], where: { startedAt: { gte, lte } } }),
+        prisma.testRun.groupBy({ by: ['projectId'], where: { endedAt: { gte, lte }, status: 'closed' } }),
+        prisma.testCase.groupBy({ by: ['projectId'], where: { createdAt: { gte, lte }, archived: false } }),
+        prisma.defect.groupBy({ by: ['projectId'], where: { createdAt: { gte, lte } } }),
+        prisma.defect.groupBy({ by: ['projectId'], where: { updatedAt: { gte, lte }, status: { in: ['resolved', 'closed'] } } }),
+        prisma.testPlan.groupBy({ by: ['projectId'], where: { createdAt: { gte, lte } } }),
+      ]);
+      const activeProjectIds = [...new Set([
+        ...runsStarted, ...runsClosed, ...casesCreated, ...defectsFiled, ...defectsResolved, ...plansCreated,
+      ].map(group => group.projectId))];
+
       const [
+        totalCases,
+        staleCases,
         executedGroups,
         defectsFromRuns,
         totalDefectsFiled,
         criticalEscaping,
         resolvedDefects,
         runResultGroups,
-        activeProjectGroups,
       ] = await Promise.all([
-        prisma.runResult.groupBy({ by: ['testCaseId'], where: { executedAt: { gte, lte } } }),
+        prisma.testCase.count({ where: { archived: false, projectId: { in: activeProjectIds } } }),
+        prisma.coverageSnapshot.count({ where: { state: 'stale', projectId: { in: activeProjectIds } } }),
+        prisma.runResult.groupBy({
+          by: ['testCaseId'],
+          where: {
+            executedAt: { gte, lte },
+            run: { projectId: { in: activeProjectIds } },
+            testCase: { archived: false, projectId: { in: activeProjectIds } },
+          },
+        }),
         prisma.defect.count({ where: { createdAt: { gte, lte }, runResultId: { not: null } } }),
         prisma.defect.count({ where: { createdAt: { gte, lte } } }),
         prisma.defect.count({ where: { createdAt: { gte, lte }, severity: 'critical', runResultId: null } }),
@@ -804,7 +821,6 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
           where: { executedAt: { gte, lte }, status: { in: ['pass', 'fail'] } },
           _count: { id: true },
         }),
-        prisma.testRun.groupBy({ by: ['projectId'], where: { startedAt: { gte, lte } } }),
       ]);
 
       const execRate = totalCases > 0 ? Math.round((executedGroups.length / totalCases) * 100) : null;
@@ -820,14 +836,19 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
       const regressionPassRate = (passCount + failCount) > 0
         ? Math.round(passCount / (passCount + failCount) * 100) : null;
 
-      return { execRate, defectDetectionRate, criticalEscaping, avgResolutionHours, regressionPassRate, activeProjects: activeProjectGroups.length };
+      return {
+        execRate, defectDetectionRate, criticalEscaping, avgResolutionHours, regressionPassRate,
+        activeProjects: runsStarted.length,
+        eligibleProjects: activeProjectIds.length,
+        staleCases,
+      };
     }
 
     const [w3, w2, w1, current] = await Promise.all(periods.map(p => computePeriod(p.gte, p.lte)));
 
     return {
-      totalProjects,
-      staleCases,
+      totalProjects: current.eligibleProjects,
+      staleCases: current.staleCases,
       since: sinceDate,
       until: untilDate,
       w3, w2, w1, current,

@@ -1356,7 +1356,7 @@ function buildKpiRows(d: KpiData): KpiRowDef[] {
     {
       key: 'execRate',
       label: 'Test execution rate — planned vs completed (%)',
-      description: 'Share of active test cases that were run at least once this period: distinct test cases with a recorded run result ÷ total active test cases.',
+      description: 'Share of test cases executed within projects that had reporting activity this period. Projects shown under “No activity” in Weekly Summary are excluded.',
       target: '100%',
       getValue: (p) => p.execRate,
       format: (v) => `${v}%`,
@@ -1406,7 +1406,7 @@ function buildKpiRows(d: KpiData): KpiRowDef[] {
     {
       key: 'staleCases',
       label: 'Stale test cases (#)',
-      description: 'Test cases currently flagged stale in the coverage snapshot (e.g. not run in a long time). This reflects current state, not the selected period.',
+      description: 'Test cases currently flagged stale within projects that had reporting activity in the selected period. Weekly Summary projects with no activity are excluded.',
       target: '0',
       getValue: (_p, data) => data.staleCases,
       format: (v) => String(v),
@@ -1416,7 +1416,7 @@ function buildKpiRows(d: KpiData): KpiRowDef[] {
     {
       key: 'activeProjects',
       label: 'Projects with active test runs this week (#)',
-      description: 'Number of distinct projects that started at least one test run this period, out of all projects.',
+      description: 'Number of reporting-active projects that started at least one test run this period. Projects under “No activity” in Weekly Summary are excluded from the target.',
       target: String(d.totalProjects),
       getValue: (p) => p.activeProjects,
       format: (v) => String(v),
