@@ -16,6 +16,7 @@ interface Defect {
   externalRef: string | null;
   status: string;
   severity: string;
+  detectedEnvironment: string;
   notes: string | null;
   attachments: AttachmentItem[] | null;
   createdAt: string;
@@ -52,10 +53,18 @@ const SEVERITY_CONFIG: Record<string, { label: string; color: string; bg: string
   medium:   { label: 'Medium',   color: '#D97706', bg: '#FEF3C7' },
   low:      { label: 'Low',      color: '#166534', bg: '#DCFCE7' },
 };
+const ENVIRONMENT_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
+  development: { label: 'Development', color: '#475569', bg: '#F1F5F9' },
+  testing: { label: 'QA/Test', color: '#0369A1', bg: '#E0F2FE' },
+  staging: { label: 'UAT/Staging', color: '#7C3AED', bg: '#EDE9FE' },
+  production: { label: 'Production', color: '#B91C1C', bg: '#FEE2E2' },
+  unknown: { label: 'Unknown', color: '#6B7280', bg: '#F3F4F6' },
+};
 
 const TRACKER_OPTIONS  = Object.entries(TRACKER_CONFIG).map(([v, c])  => ({ value: v, label: c.label }));
 const STATUS_OPTIONS   = Object.entries(STATUS_CONFIG).map(([v, c])   => ({ value: v, label: c.label }));
 const SEVERITY_OPTIONS = Object.entries(SEVERITY_CONFIG).map(([v, c]) => ({ value: v, label: c.label }));
+const ENVIRONMENT_OPTIONS = Object.entries(ENVIRONMENT_CONFIG).map(([v, c]) => ({ value: v, label: c.label }));
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
@@ -64,6 +73,7 @@ export function DefectsPage() {
   const qc = useQueryClient();
   const { isEditor, canBulkUploadDefects } = useProjectRole(projectId);
   const [statusFilter, setStatusFilter]       = useState('');
+  const [environmentFilter, setEnvironmentFilter] = useState('');
   const [updatingId, setUpdatingId]           = useState<string | null>(null);
   const [showCreate, setShowCreate]           = useState(false);
   const [showBulkUpload, setShowBulkUpload]   = useState(false);
@@ -71,9 +81,12 @@ export function DefectsPage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['defects', projectId, statusFilter],
+    queryKey: ['defects', projectId, statusFilter, environmentFilter],
     queryFn: () => {
-      const qs = statusFilter ? `?status=${statusFilter}` : '';
+      const params = new URLSearchParams();
+      if (statusFilter) params.set('status', statusFilter);
+      if (environmentFilter) params.set('detectedEnvironment', environmentFilter);
+      const qs = params.toString() ? `?${params}` : '';
       return api.get<{ defects: Defect[] }>(`projects/${projectId}/defects${qs}`);
     },
     enabled: !!projectId,
@@ -121,6 +134,7 @@ export function DefectsPage() {
             </Button>
           )}
         </div>
+        <div style={{ maxWidth: 220, marginBottom: 16 }}><Select label="Detected environment" value={environmentFilter} onChange={e => setEnvironmentFilter(e.target.value)} options={[{ value: '', label: 'All environments' }, ...ENVIRONMENT_OPTIONS]} /></div>
 
         {/* Stats */}
         <div className="grid-4" style={{ marginBottom: 24 }}>
@@ -165,7 +179,7 @@ export function DefectsPage() {
           {!isLoading && defects.length === 0 && (
             <EmptyState
               icon="✓"
-              title={statusFilter ? 'No defects with this status' : 'No defects filed'}
+              title={statusFilter || environmentFilter ? 'No defects match these filters' : 'No defects filed'}
               description="Defects are filed from run results or directly with the + New defect button."
             />
           )}
@@ -174,6 +188,7 @@ export function DefectsPage() {
             const tc   = TRACKER_CONFIG[defect.tracker]    ?? TRACKER_CONFIG.internal;
             const sc   = STATUS_CONFIG[defect.status]     ?? STATUS_CONFIG.open;
             const sevc = SEVERITY_CONFIG[defect.severity] ?? SEVERITY_CONFIG.medium;
+            const envc = ENVIRONMENT_CONFIG[defect.detectedEnvironment] ?? ENVIRONMENT_CONFIG.unknown;
             const last = i === defects.length - 1;
 
             return (
@@ -189,6 +204,10 @@ export function DefectsPage() {
                     color: sevc.color, background: sevc.bg, flexShrink: 0, letterSpacing: '0.02em',
                   }}>
                     {sevc.label}
+                  </span>
+
+                  <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: '0.75rem', fontWeight: 600, color: envc.color, background: envc.bg, flexShrink: 0 }}>
+                    {envc.label}
                   </span>
 
                   {/* Tracker badge */}
@@ -410,10 +429,10 @@ function BulkDefectUploadModal({ projectId, onClose, onImported }: {
     >
       <p style={{ marginTop: 0, fontSize: '0.875rem', color: 'var(--gray-600)', lineHeight: 1.5 }}>
         Upload up to 1,000 defects as CSV. <code>title</code> is required. Optional columns are
-        <code> tracker</code>, <code>severity</code>, <code>status</code>, <code>externalRef</code>, and <code>notes</code>.
+        <code> tracker</code>, <code>severity</code>, <code>status</code>, <code>detectedEnvironment</code>, <code>externalRef</code>, and <code>notes</code>.
       </p>
       <div style={{ padding: 10, marginBottom: 14, borderRadius: 6, background: 'var(--gray-50)', border: '1px solid var(--border-color)', fontFamily: 'monospace', fontSize: '0.75rem', overflowX: 'auto' }}>
-        title,tracker,severity,status,externalRef,notes
+        title,tracker,severity,status,detectedEnvironment,externalRef,notes
       </div>
       {!result && <input type="file" accept=".csv,text/csv" onChange={e => { setFile(e.target.files?.[0] ?? null); setError(''); }} style={{ display: 'block', width: '100%', marginBottom: 14 }} />}
       {!result && (
@@ -425,10 +444,10 @@ function BulkDefectUploadModal({ projectId, onClose, onImported }: {
           }}
           onClick={() => {
             const csv = [
-              'title,tracker,severity,status,externalRef,notes',
-              '"Checkout fails with valid card","jira","high","open","QA-102","Payment fails with a valid Visa card"',
-              '"Account balance is not updated","internal","critical","open","","Balance remains unchanged after a successful transfer"',
-              '"Submit button overlaps footer","github","low","in_progress","https://github.com/example/repo/issues/45","Visible on mobile screens below 390px"',
+              'title,tracker,severity,status,detectedEnvironment,externalRef,notes',
+              '"Checkout fails with valid card","jira","high","open","testing","QA-102","Payment fails with a valid Visa card"',
+              '"Account balance is not updated","internal","critical","open","production","","Balance remains unchanged after a successful transfer"',
+              '"Submit button overlaps footer","github","low","in_progress","staging","https://github.com/example/repo/issues/45","Visible on mobile screens below 390px"',
               '',
             ].join('\n');
             const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
@@ -470,6 +489,7 @@ function EditDefectModal({
   const [title, setTitle]             = useState(defect.title ?? '');
   const [tracker, setTracker]         = useState(defect.tracker);
   const [severity, setSeverity]       = useState(defect.severity ?? 'medium');
+  const [detectedEnvironment, setDetectedEnvironment] = useState(defect.detectedEnvironment ?? 'unknown');
   const [ref, setRef]                 = useState(defect.externalRef ?? '');
   const [notes, setNotes]             = useState(defect.notes ?? '');
   const [attachments, setAttachments] = useState<AttachmentItem[]>(defect.attachments ?? []);
@@ -480,6 +500,7 @@ function EditDefectModal({
       title: title.trim(),
       tracker,
       severity,
+      detectedEnvironment,
       externalRef: ref.trim() || null,
       notes: notes.trim() || null,
       attachments,
@@ -533,6 +554,7 @@ function EditDefectModal({
             <Select value={severity} onChange={e => setSeverity(e.target.value)} options={SEVERITY_OPTIONS} />
           </div>
         </div>
+        <Select label="Detected environment" value={detectedEnvironment} onChange={e => setDetectedEnvironment(e.target.value)} options={ENVIRONMENT_OPTIONS} />
         <Input
           label="External ref / URL (optional)"
           value={ref}
@@ -575,6 +597,7 @@ function CreateDefectModal({
   const [title, setTitle]             = useState('');
   const [tracker, setTracker]         = useState('internal');
   const [severity, setSeverity]       = useState('medium');
+  const [detectedEnvironment, setDetectedEnvironment] = useState('testing');
   const [ref, setRef]                 = useState('');
   const [notes, setNotes]             = useState('');
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
@@ -585,7 +608,7 @@ function CreateDefectModal({
   const mutation = useMutation({
     mutationFn: () => api.post(`projects/${projectId}/defects`, {
       clientRequestId: requestId.current,
-      title, tracker, severity,
+      title, tracker, severity, detectedEnvironment,
       externalRef: ref.trim() || undefined,
       notes: notes.trim() || undefined,
       attachments,
@@ -641,6 +664,7 @@ function CreateDefectModal({
             <Select value={severity} onChange={e => setSeverity(e.target.value)} options={SEVERITY_OPTIONS} />
           </div>
         </div>
+        <Select label="Detected environment" value={detectedEnvironment} onChange={e => setDetectedEnvironment(e.target.value)} options={ENVIRONMENT_OPTIONS.filter(option => option.value !== 'unknown')} />
         <Input
           label="External ref URL (optional)"
           value={ref}

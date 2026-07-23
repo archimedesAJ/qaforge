@@ -8,6 +8,15 @@ import { logActivity } from '../lib/activityLog.js';
 const VALID_TRACKERS  = ['jira', 'github', 'linear', 'internal'] as const;
 const VALID_STATUSES  = ['open', 'in_progress', 'resolved', 'closed', 'wont_fix'] as const;
 const VALID_SEVERITIES = ['critical', 'high', 'medium', 'low'] as const;
+const VALID_DETECTED_ENVIRONMENTS = ['development', 'testing', 'staging', 'production', 'unknown'] as const;
+
+function detectedEnvironmentFromRun(env: string): typeof VALID_DETECTED_ENVIRONMENTS[number] {
+  const value = env.toLowerCase();
+  if (value.includes('prod')) return 'production';
+  if (value.includes('stag') || value.includes('uat')) return 'staging';
+  if (value.includes('dev') || value.includes('local')) return 'development';
+  return 'testing';
+}
 
 const AttachmentSchema = z.object({
   name: z.string(),
@@ -20,6 +29,7 @@ const CreateDefectSchema = z.object({
   title:       z.string().min(1),
   tracker:     z.enum(VALID_TRACKERS),
   severity:    z.enum(VALID_SEVERITIES).default('medium'),
+  detectedEnvironment: z.enum(VALID_DETECTED_ENVIRONMENTS).optional(),
   externalRef: z.string().max(2048).nullish(),
   notes:       z.string().optional(),
   attachments: z.array(AttachmentSchema).optional(),
@@ -29,6 +39,7 @@ const UpdateDefectSchema = z.object({
   title:       z.string().min(1).optional(),
   tracker:     z.enum(VALID_TRACKERS).optional(),
   severity:    z.enum(VALID_SEVERITIES).optional(),
+  detectedEnvironment: z.enum(VALID_DETECTED_ENVIRONMENTS).optional(),
   externalRef: z.string().max(2048).nullish(),
   status:      z.enum(VALID_STATUSES).optional(),
   notes:       z.string().optional(),
@@ -79,13 +90,16 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
   // GET /:projectId/defects — list all defects for a project (filterable by status)
   app.get('/:projectId/defects', { preHandler: requireRole('viewer') }, async (req) => {
     const { projectId } = req.params as { projectId: string };
-    const { status } = req.query as { status?: string };
+    const { status, detectedEnvironment } = req.query as { status?: string; detectedEnvironment?: string };
 
     const defects = await prisma.defect.findMany({
       where: {
         projectId,
         ...(status && VALID_STATUSES.includes(status as typeof VALID_STATUSES[number])
           ? { status }
+          : {}),
+        ...(detectedEnvironment && VALID_DETECTED_ENVIRONMENTS.includes(detectedEnvironment as typeof VALID_DETECTED_ENVIRONMENTS[number])
+          ? { detectedEnvironment }
           : {}),
       },
       include: DEFECT_INCLUDE,
@@ -101,6 +115,7 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
     const { userId } = req.user as { userId: string };
     const { isSystemAdmin } = req as { isSystemAdmin?: boolean };
     const body = CreateDefectSchema.parse(req.body);
+    if (!body.detectedEnvironment) return reply.code(400).send({ error: 'Detected environment is required' });
 
     let defect;
     try {
@@ -111,6 +126,7 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
           title:       body.title.trim(),
           tracker:     body.tracker,
           severity:    body.severity,
+          detectedEnvironment: body.detectedEnvironment,
           externalRef: body.externalRef?.trim() || null,
           notes:       body.notes?.trim() || null,
           attachments: body.attachments ?? [],
@@ -160,6 +176,7 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
       const tracker = (row.tracker || 'internal').toLowerCase();
       const severity = (row.severity || 'medium').toLowerCase();
       const status = (row.status || 'open').toLowerCase();
+      const detectedEnvironment = (row.detectedenvironment || row.detected_environment || 'unknown').toLowerCase();
       if (!VALID_TRACKERS.includes(tracker as typeof VALID_TRACKERS[number])) {
         issues.push({ row: rowNumber, title, message: `Invalid tracker "${row.tracker}"` }); continue;
       }
@@ -169,6 +186,9 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
       if (!VALID_STATUSES.includes(status as typeof VALID_STATUSES[number])) {
         issues.push({ row: rowNumber, title, message: `Invalid status "${row.status}"` }); continue;
       }
+      if (!VALID_DETECTED_ENVIRONMENTS.includes(detectedEnvironment as typeof VALID_DETECTED_ENVIRONMENTS[number])) {
+        issues.push({ row: rowNumber, title, message: `Invalid detected environment "${row.detectedenvironment || row.detected_environment}"` }); continue;
+      }
       if ((row.externalref || row.external_ref || '').length > 2048) {
         issues.push({ row: rowNumber, title, message: 'External reference exceeds 2,048 characters' }); continue;
       }
@@ -177,7 +197,7 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
         await prisma.defect.create({
           data: {
             projectId, title,
-            tracker, severity, status,
+            tracker, severity, status, detectedEnvironment,
             externalRef: row.externalref || row.external_ref || null,
             notes: row.notes || null,
             attachments: [],
@@ -205,7 +225,7 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
 
     const result = await prisma.runResult.findUnique({
       where: { id: Number(resultId) },
-      include: { run: { select: { projectId: true } } },
+      include: { run: { select: { projectId: true, env: true } } },
     });
     if (!result) return reply.code(404).send({ error: 'Result not found' });
     if (result.run.projectId !== projectId) return reply.code(403).send({ error: 'Forbidden' });
@@ -221,6 +241,7 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
           title:       body.title.trim(),
           tracker:     body.tracker,
           severity:    body.severity,
+          detectedEnvironment: body.detectedEnvironment ?? detectedEnvironmentFromRun(result.run.env),
           externalRef: body.externalRef?.trim() || null,
           notes:       body.notes?.trim() || null,
           attachments: body.attachments ?? [],
@@ -257,6 +278,7 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
         ...(body.title       !== undefined && { title: body.title.trim() }),
         ...(body.tracker     !== undefined && { tracker:  body.tracker }),
         ...(body.severity    !== undefined && { severity: body.severity }),
+        ...(body.detectedEnvironment !== undefined && { detectedEnvironment: body.detectedEnvironment }),
         ...(body.externalRef !== undefined && { externalRef: body.externalRef?.trim() || null }),
         ...(body.status      !== undefined && { status:   body.status }),
         ...(body.notes       !== undefined && { notes: body.notes.trim() || null }),

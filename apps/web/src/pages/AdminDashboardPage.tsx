@@ -1377,7 +1377,7 @@ function buildKpiRows(d: KpiData): KpiRowDef[] {
     {
       key: 'criticalEscaping',
       label: 'Critical defects escaping to production (#)',
-      description: 'Count of critical-severity defects filed this period that are NOT linked to a test run result — i.e. found outside of QA execution rather than caught by testing.',
+      description: 'Count of critical-severity defects created this period whose detected environment is explicitly set to Production. Unknown and non-production defects are excluded.',
       target: '0',
       getValue: (p) => p.criticalEscaping,
       format: (v) => String(v),

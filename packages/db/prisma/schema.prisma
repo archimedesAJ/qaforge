@@ -285,6 +285,7 @@ model Defect {
   externalRef String?   // full URL to the ticket
   status      String    @default("open")   // open | in_progress | resolved | closed | wont_fix
   severity    String    @default("medium") // critical | high | medium | low
+  detectedEnvironment String @default("unknown") // development | testing | staging | production | unknown
   notes       String?
   attachments Json?
   createdAt   DateTime  @default(now())
@@ -295,6 +296,7 @@ model Defect {
 
   @@index([projectId])
   @@index([runResultId])
+  @@index([detectedEnvironment, severity, createdAt])
 }
 model ActivityLog {
   id          String   @id @default(uuid())

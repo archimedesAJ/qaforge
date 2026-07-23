@@ -11,6 +11,7 @@ interface Defect {
   tracker: string;
   externalRef: string | null;
   status: string;
+  detectedEnvironment: string;
   notes: string | null;
   createdAt: string;
 }
@@ -45,6 +46,18 @@ const STATUS_CONFIG_DEFECT: Record<string, { label: string; color: string; bg: s
   closed:      { label: 'Closed',      color: '#6B7280', bg: '#F3F4F6' },
   wont_fix:    { label: "Won't fix",   color: '#9CA3AF', bg: '#F9FAFB' },
 };
+const DETECTED_ENVIRONMENT_OPTIONS = [
+  { value: 'development', label: 'Development' }, { value: 'testing', label: 'QA/Test' },
+  { value: 'staging', label: 'UAT/Staging' }, { value: 'production', label: 'Production' },
+  { value: 'unknown', label: 'Unknown' },
+];
+function detectedEnvironmentFromRun(env?: string) {
+  const value = (env ?? '').toLowerCase();
+  if (value.includes('prod')) return 'production';
+  if (value.includes('stag') || value.includes('uat')) return 'staging';
+  if (value.includes('dev') || value.includes('local')) return 'development';
+  return 'testing';
+}
 
 interface RunDetail {
   name: string;
@@ -97,6 +110,7 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
   const [defectTitle, setDefectTitle]             = useState('');
   const [defectTracker, setDefectTracker]         = useState('jira');
   const [defectStatus, setDefectStatus]           = useState('open');
+  const [defectEnvironment, setDefectEnvironment] = useState('testing');
   const [defectRef, setDefectRef]                 = useState('');
   const [defectNotes, setDefectNotes]             = useState('');
   const [defectAttachments, setDefectAttachments] = useState<AttachmentItem[]>([]);
@@ -122,7 +136,7 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
 
   // ── Defect mutations ─────────────────────────────────────────
   const fileDefect = useMutation({
-    mutationFn: (body: { clientRequestId: string; title: string; tracker: string; externalRef?: string; notes?: string; attachments?: AttachmentItem[] }) =>
+    mutationFn: (body: { clientRequestId: string; title: string; tracker: string; detectedEnvironment: string; externalRef?: string; notes?: string; attachments?: AttachmentItem[] }) =>
       api.post<Defect>(`projects/${projectId}/results/${filingFor!.id}/defect`, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['run-results', runId] });
@@ -134,7 +148,7 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
   });
 
   const updateDefect = useMutation({
-    mutationFn: (body: { status?: string; externalRef?: string; notes?: string }) =>
+    mutationFn: (body: { status?: string; detectedEnvironment?: string; externalRef?: string; notes?: string }) =>
       api.patch<Defect>(`projects/${projectId}/defects/${editingDefect!.defect.id}`, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['run-results', runId] });
@@ -584,6 +598,7 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
                             e.stopPropagation();
                             setEditingDefect({ defect, resultId: result.id });
                             setDefectStatus(defect.status);
+                            setDefectEnvironment(defect.detectedEnvironment ?? 'unknown');
                             setDefectRef(defect.externalRef ?? '');
                             setDefectNotes(defect.notes ?? '');
                           }}
@@ -598,7 +613,7 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
                       );
                     })}
                     <button
-                      onClick={e => { e.stopPropagation(); defectRequestId.current = crypto.randomUUID(); defectSubmitting.current = false; setFilingFor(result); setDefectTitle(result.testCase?.title ?? ''); setDefectTracker('jira'); setDefectRef(''); setDefectNotes(''); setDefectAttachments([]); setDefectError(''); }}
+                      onClick={e => { e.stopPropagation(); defectRequestId.current = crypto.randomUUID(); defectSubmitting.current = false; setFilingFor(result); setDefectTitle(result.testCase?.title ?? ''); setDefectTracker('jira'); setDefectEnvironment(detectedEnvironmentFromRun(runDetail?.env)); setDefectRef(''); setDefectNotes(''); setDefectAttachments([]); setDefectError(''); }}
                       style={{
                         background: 'none', border: '1px dashed var(--border-color)', borderRadius: 5,
                         color: 'var(--gray-400)', fontSize: '0.8125rem', padding: '3px 10px', cursor: 'pointer',
@@ -739,6 +754,7 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
                   clientRequestId: defectRequestId.current,
                   title:       defectTitle.trim(),
                   tracker:     defectTracker,
+                  detectedEnvironment: defectEnvironment,
                   externalRef: defectRef.trim() || undefined,
                   notes:       defectNotes.trim() || undefined,
                   attachments: defectAttachments,
@@ -769,6 +785,7 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
             { value: 'internal', label: 'Internal (no external tracker)' },
           ]}
         />
+        <Select label="Detected environment" value={defectEnvironment} onChange={e => setDefectEnvironment(e.target.value)} options={DETECTED_ENVIRONMENT_OPTIONS.filter(option => option.value !== 'unknown')} />
         <Input
           label="Ticket URL (optional)"
           value={defectRef}
@@ -799,6 +816,7 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
                 if (!editingDefect) return;
                 updateDefect.mutate({
                   status:      defectStatus,
+                  detectedEnvironment: defectEnvironment,
                   externalRef: defectRef.trim() || undefined,
                   notes:       defectNotes.trim() || undefined,
                 });
@@ -821,6 +839,7 @@ export function AutoResultsViewer({ projectId, runId, runName, onBack }: AutoRes
             { value: 'wont_fix',    label: "Won't fix" },
           ]}
         />
+        <Select label="Detected environment" value={defectEnvironment} onChange={e => setDefectEnvironment(e.target.value)} options={DETECTED_ENVIRONMENT_OPTIONS} />
         <Input
           label="Ticket URL (optional)"
           value={defectRef}

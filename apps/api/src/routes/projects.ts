@@ -811,7 +811,7 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         }),
         prisma.defect.count({ where: { createdAt: { gte, lte }, runResultId: { not: null } } }),
         prisma.defect.count({ where: { createdAt: { gte, lte } } }),
-        prisma.defect.count({ where: { createdAt: { gte, lte }, severity: 'critical', runResultId: null } }),
+        prisma.defect.count({ where: { createdAt: { gte, lte }, severity: 'critical', detectedEnvironment: 'production' } }),
         prisma.defect.findMany({
           where: { updatedAt: { gte, lte }, status: { in: ['resolved', 'closed'] } },
           select: { createdAt: true, updatedAt: true },
