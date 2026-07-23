@@ -220,7 +220,7 @@ export function AdminDashboardPage() {
 
   const { data: weeklyData, isLoading: weeklyLoading } = useQuery({
     queryKey: ['sysadmin-weekly-summary', datePreset, customFrom, customUntil],
-    enabled: viewMode === 'weekly' && customReady,
+    enabled: (viewMode === 'weekly' || viewMode === 'exec') && customReady,
     queryFn: () => {
       const { since, until } = getDateRange(datePreset, customFrom, customUntil);
       const params = new URLSearchParams();
@@ -861,10 +861,11 @@ export function AdminDashboardPage() {
         )}
 
         {/* ── Exec Summary view ── */}
-        {!isLoading && stats && viewMode === 'exec' && (
+        {!isLoading && stats && viewMode === 'exec' && (weeklyLoading ? <div style={{ padding: 40, textAlign: 'center' }}><Spinner size="lg" /></div> :
           <ExecSummaryView
             stats={stats}
             projects={projects}
+            activity={weeklyData}
             period={getPeriodLabel(datePreset, customFrom, customUntil)}
           />
         )}
@@ -1575,7 +1576,7 @@ interface ExecSummaryCalc {
   staleCases: number;
   totalFailing: number;
   totalFlaky: number;
-  projectsWithNoRuns: number;
+  projectsWithNoActivity: number;
   portfolioHealth: 'GREEN' | 'AMBER' | 'RED';
   topStaleProject: { name: string; staleCount: number; totalCount: number } | null;
 }
@@ -1618,8 +1619,8 @@ function buildExecNarrative(s: ExecSummaryCalc): { text: string; color: string }
     bullets.push({ text: `${s.totalFailing} failing test${s.totalFailing !== 1 ? 's' : ''} across the portfolio require attention.`, color: '#DC2626' });
   }
 
-  if (s.projectsWithNoRuns > 0) {
-    bullets.push({ text: `${s.projectsWithNoRuns} project${s.projectsWithNoRuns !== 1 ? 's have' : ' has'} no test runs recorded — these may be new or currently paused.`, color: '#6B7280' });
+  if (s.projectsWithNoActivity > 0) {
+    bullets.push({ text: `${s.projectsWithNoActivity} project${s.projectsWithNoActivity !== 1 ? 's had' : ' had'} no reporting activity this period — these may be live, paused, or awaiting work.`, color: '#6B7280' });
   }
 
   if (s.openDefects > 0 && s.resolvedDefects > 0) {
@@ -1648,9 +1649,10 @@ function buildExecCopyText(s: ExecSummaryCalc, period: string): string {
   return lines.join('\n');
 }
 
-function ExecSummaryView({ stats, projects, period }: {
+function ExecSummaryView({ stats, projects, activity, period }: {
   stats: OverviewStats;
   projects: ProjectHealth[];
+  activity: WeeklySummaryData | undefined;
   period: string;
 }) {
   const [copied, setCopied] = useState(false);
@@ -1662,7 +1664,7 @@ function ExecSummaryView({ stats, projects, period }: {
   const staleCases     = projects.reduce((s, p) => s + p.coverageStats.stale,   0);
   const totalFailing   = projects.reduce((s, p) => s + p.coverageStats.failing, 0);
   const totalFlaky     = projects.reduce((s, p) => s + p.flakyCount,            0);
-  const activeProjects = projects.filter(p => p.latestRun !== null).length;
+  const activeProjects = activity?.active.length ?? 0;
 
   const portfolioHealth: 'GREEN' | 'AMBER' | 'RED' = (() => {
     if (avgPassRate === null || avgCoverage === null) return 'AMBER';
@@ -1687,7 +1689,7 @@ function ExecSummaryView({ stats, projects, period }: {
     staleCases,
     totalFailing,
     totalFlaky,
-    projectsWithNoRuns: projects.filter(p => p.latestRun === null).length,
+    projectsWithNoActivity: activity?.inactive.length ?? 0,
     portfolioHealth,
     topStaleProject,
   };
