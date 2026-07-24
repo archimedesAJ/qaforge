@@ -34,6 +34,8 @@ export function ExploratoryRunWorkspace({ projectId, run, onExecute, onBack, onC
 }) {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
+  const [showRename, setShowRename] = useState(false);
+  const [renameName, setRenameName] = useState(run.name);
   const [showClose, setShowClose] = useState(false);
   const [title, setTitle] = useState('');
   const [priority, setPriority] = useState('p2');
@@ -86,6 +88,16 @@ export function ExploratoryRunWorkspace({ projectId, run, onExecute, onBack, onC
     onError: (err: Error) => setError(err.message),
   });
 
+  const renameRun = useMutation({
+    mutationFn: () => api.patch(`projects/${projectId}/runs/${run.id}`, { name: renameName.trim() }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['runs', projectId] });
+      qc.invalidateQueries({ queryKey: ['exploratory-run', run.id] });
+      setShowRename(false); setError('');
+    },
+    onError: (err: Error) => setError(err.message),
+  });
+
   function resetCaseForm() {
     setTitle(''); setPriority('p2'); setPreconditions(''); setAction(''); setExpected(''); setError('');
   }
@@ -108,7 +120,7 @@ export function ExploratoryRunWorkspace({ projectId, run, onExecute, onBack, onC
         <Button variant="ghost" size="sm" onClick={onBack}>← Back</Button>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <h2 style={{ margin: 0, fontSize: '1.1rem' }}>{run.name}</h2>
+            <h2 style={{ margin: 0, fontSize: '1.1rem' }}>{data?.name ?? run.name}</h2>
             <span style={{ padding: '2px 8px', borderRadius: 10, background: 'var(--color-primary-light)', color: 'var(--color-primary)', fontSize: '0.75rem', fontWeight: 600 }}>Exploratory</span>
             <span style={{ fontFamily: 'monospace', color: 'var(--gray-500)', fontSize: '0.8125rem' }}>{run.env}</span>
           </div>
@@ -122,8 +134,14 @@ export function ExploratoryRunWorkspace({ projectId, run, onExecute, onBack, onC
           <div style={{ fontFamily: 'monospace', fontSize: '1.3rem', fontWeight: 700 }}>{formatTime(elapsed)}</div>
           {data?.session.plannedDurationMins && <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)' }}>planned {data.session.plannedDurationMins} min</div>}
         </div>
+        <Button variant="secondary" size="sm" onClick={() => { setRenameName(data?.name ?? run.name); setError(''); setShowRename(true); }}>Rename</Button>
         <Button variant="danger" size="sm" onClick={() => { setError(''); setShowClose(true); }}>End session</Button>
       </div>
+
+      <Modal open={showRename} onClose={() => setShowRename(false)} title="Rename run" footer={<><Button variant="secondary" onClick={() => setShowRename(false)}>Cancel</Button><Button variant="primary" loading={renameRun.isPending} onClick={() => { if (!renameName.trim()) { setError('Run name is required'); return; } renameRun.mutate(); }}>Save name</Button></>}>
+        {error && <div style={{ marginBottom: 12 }}><Alert type="error">{error}</Alert></div>}
+        <Input label="Run name" value={renameName} onChange={event => { setRenameName(event.target.value); setError(''); }} autoFocus maxLength={200} />
+      </Modal>
 
       <div className="grid-4">
         <StatCard label="Cases designed" value={cases.length} />

@@ -13,6 +13,8 @@ const CreateRunSchema = z.object({
   source: z.enum(['manual', 'ci_github', 'ci_gitlab', 'ci_jenkins', 'api']).default('manual'),
   caseIds: z.array(z.string().uuid()).optional(),
 });
+const RenameRunSchema = z.object({ name: z.string().trim().min(1).max(200) });
+const AddRunCasesSchema = z.object({ caseIds: z.array(z.string().uuid()).min(1).max(500) });
 
 const CreateExploratoryRunSchema = z.object({
   name: z.string().min(1).max(200),
@@ -316,6 +318,40 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
     }
 
     return { ...run, projectName: run.project.name, reporterName };
+  });
+
+  // PATCH /projects/:projectId/runs/:runId — rename an open run
+  app.patch('/:projectId/runs/:runId', { preHandler: requireRole('editor') }, async (req, reply) => {
+    const { projectId, runId } = req.params as { projectId: string; runId: string };
+    const { userId } = req.user as { userId: string };
+    const { isSystemAdmin } = req as { isSystemAdmin?: boolean };
+    const body = RenameRunSchema.parse(req.body);
+    const run = await prisma.testRun.findFirst({ where: { id: runId, projectId } });
+    if (!run) return reply.code(404).send({ error: 'Run not found' });
+    if (run.status !== 'open') return reply.code(409).send({ error: 'Closed runs cannot be renamed' });
+    const updated = await prisma.testRun.update({ where: { id: runId }, data: { name: body.name } });
+    logActivity({ userId, isSystemAdmin, projectId, action: 'run_renamed', entityType: 'run', entityId: runId, entityName: updated.name });
+    return updated;
+  });
+
+  // POST /projects/:projectId/runs/:runId/cases — add active project cases to an open run
+  app.post('/:projectId/runs/:runId/cases', { preHandler: requireRole('editor') }, async (req, reply) => {
+    const { projectId, runId } = req.params as { projectId: string; runId: string };
+    const body = AddRunCasesSchema.parse(req.body);
+    const run = await prisma.testRun.findFirst({ where: { id: runId, projectId } });
+    if (!run) return reply.code(404).send({ error: 'Run not found' });
+    if (run.status !== 'open') return reply.code(409).send({ error: 'Cases cannot be added to a closed run' });
+    const uniqueIds = [...new Set(body.caseIds)];
+    const validCases = await prisma.testCase.findMany({
+      where: { id: { in: uniqueIds }, projectId, archived: false },
+      select: { id: true },
+    });
+    if (validCases.length !== uniqueIds.length) return reply.code(400).send({ error: 'All selected cases must be active cases in this project' });
+    const created = await prisma.runCase.createMany({
+      data: validCases.map(testCase => ({ runId, testCaseId: testCase.id })),
+      skipDuplicates: true,
+    });
+    return reply.code(201).send({ added: created.count });
   });
 
   // GET /projects/:projectId/runs/:runId/results — viewer+

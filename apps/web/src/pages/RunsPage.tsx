@@ -66,6 +66,11 @@ export function RunsPage() {
   const [caseSearch, setCaseSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showSetPicker, setShowSetPicker] = useState(false);
+  const [showRenameRun, setShowRenameRun] = useState(false);
+  const [renameRunName, setRenameRunName] = useState('');
+  const [showAddCases, setShowAddCases] = useState(false);
+  const [additionalCaseIds, setAdditionalCaseIds] = useState<Set<string>>(new Set());
+  const [runUpdateError, setRunUpdateError] = useState('');
 
   // Inline note state (blocked / skipped / fail reason)
   const [noteInputCase, setNoteInputCase] = useState<string | null>(null);
@@ -97,7 +102,7 @@ export function RunsPage() {
   const { data: setsData } = useQuery({
     queryKey: ['sets', projectId],
     queryFn: () => api.get<{ sets: { id: string; name: string; description: string | null; caseCount: number }[] }>(`projects/${projectId}/sets`),
-    enabled: !!projectId && view === 'select-cases',
+    enabled: !!projectId && (view === 'select-cases' || showAddCases),
   });
 
   // Cases for selection (shown in select-cases view) — no pagination cap
@@ -167,9 +172,29 @@ export function RunsPage() {
     },
   });
 
+  const renameRun = useMutation({
+    mutationFn: () => api.patch<TestRun>(`projects/${projectId}/runs/${pendingRun!.id}`, { name: renameRunName.trim() }),
+    onSuccess: run => {
+      setPendingRun(run); setShowRenameRun(false); setRunUpdateError('');
+      qc.invalidateQueries({ queryKey: ['runs', projectId] });
+    },
+    onError: (err: Error) => setRunUpdateError(err.message),
+  });
+
+  const addRunCases = useMutation({
+    mutationFn: () => api.post<{ added: number }>(`projects/${projectId}/runs/${pendingRun!.id}/cases`, { caseIds: [...additionalCaseIds] }),
+    onSuccess: () => {
+      setShowAddCases(false); setAdditionalCaseIds(new Set()); setRunUpdateError('');
+      qc.invalidateQueries({ queryKey: ['run-cases', pendingRun?.id] });
+    },
+    onError: (err: Error) => setRunUpdateError(err.message),
+  });
+
   const runs     = runsData?.runs ?? [];
   const allCases = allCasesData?.data ?? [];
   const runCases = runCasesData?.runCases ?? [];
+  const assignedCaseIds = new Set(runCases.map(runCase => runCase.testCaseId));
+  const availableAdditionalCases = allCases.filter(testCase => !assignedCaseIds.has(testCase.id) && (!caseSearch || testCase.title.toLowerCase().includes(caseSearch.toLowerCase())));
 
   // Derived execute view stats
   const doneCount  = runCases.filter(rc => rc.status !== 'not_run').length;
@@ -591,6 +616,22 @@ export function RunsPage() {
             </div>
           ))}
         </Modal>
+
+        <Modal open={showRenameRun} onClose={() => setShowRenameRun(false)} title="Rename run" footer={<><Button variant="secondary" onClick={() => setShowRenameRun(false)}>Cancel</Button><Button variant="primary" loading={renameRun.isPending} onClick={() => { if (!renameRunName.trim()) { setRunUpdateError('Run name is required'); return; } renameRun.mutate(); }}>Save name</Button></>}>
+          {runUpdateError && <div style={{ marginBottom: 12 }}><Alert type="error">{runUpdateError}</Alert></div>}
+          <Input label="Run name" value={renameRunName} onChange={event => { setRenameRunName(event.target.value); setRunUpdateError(''); }} autoFocus maxLength={200} />
+        </Modal>
+
+        <Modal open={showAddCases} onClose={() => setShowAddCases(false)} title="Add test cases to run" maxWidth={700} footer={<><Button variant="secondary" onClick={() => setShowAddCases(false)}>Cancel</Button><Button variant="primary" loading={addRunCases.isPending} disabled={additionalCaseIds.size === 0} onClick={() => addRunCases.mutate()}>Add {additionalCaseIds.size || ''} case{additionalCaseIds.size === 1 ? '' : 's'}</Button></>}>
+          {runUpdateError && <div style={{ marginBottom: 12 }}><Alert type="error">{runUpdateError}</Alert></div>}
+          <Input label="Search project cases" value={caseSearch} onChange={event => setCaseSearch(event.target.value)} placeholder="Search by title…" />
+          {loadingCases ? <div style={{ padding: 24, textAlign: 'center' }}><Spinner /></div> : availableAdditionalCases.length === 0 ? <EmptyState icon="✓" title="No additional cases available" description="All matching active project cases are already assigned to this run." /> : <div style={{ maxHeight: 360, overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 8 }}>
+            {availableAdditionalCases.map(testCase => <label key={testCase.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: '1px solid var(--border-color)', cursor: 'pointer' }}>
+              <input type="checkbox" checked={additionalCaseIds.has(testCase.id)} onChange={() => setAdditionalCaseIds(current => { const next = new Set(current); if (next.has(testCase.id)) next.delete(testCase.id); else next.add(testCase.id); return next; })} />
+              <span style={{ flex: 1 }}><span style={{ fontWeight: 500 }}>{testCase.title}</span><span style={{ display: 'block', color: 'var(--gray-400)', fontSize: '0.75rem', marginTop: 2 }}>{TYPE_LABELS[testCase.type as TestType] ?? testCase.type} · {testCase.priority.toUpperCase()}</span></span>
+            </label>)}
+          </div>}
+        </Modal>
       </AppLayout>
     );
   }
@@ -633,6 +674,10 @@ export function RunsPage() {
                 {pendingRun.env}
               </span>
             </div>
+            {isEditor && <>
+              <Button variant="secondary" size="sm" onClick={() => { setRenameRunName(pendingRun.name); setRunUpdateError(''); setShowRenameRun(true); }}>Rename</Button>
+              <Button variant="secondary" size="sm" onClick={() => { setPickerSuiteId(null); setCaseSearch(''); setAdditionalCaseIds(new Set()); setRunUpdateError(''); setShowAddCases(true); }}>+ Add cases</Button>
+            </>}
             {/* CI ingest shortcuts */}
             {canExecute && (
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
