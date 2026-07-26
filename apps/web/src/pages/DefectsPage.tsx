@@ -20,6 +20,7 @@ interface Defect {
   notes: string | null;
   attachments: AttachmentItem[] | null;
   createdAt: string;
+  updatedAt: string;
   runResult: {
     id: number;
     runId: string;
@@ -65,6 +66,16 @@ const TRACKER_OPTIONS  = Object.entries(TRACKER_CONFIG).map(([v, c])  => ({ valu
 const STATUS_OPTIONS   = Object.entries(STATUS_CONFIG).map(([v, c])   => ({ value: v, label: c.label }));
 const SEVERITY_OPTIONS = Object.entries(SEVERITY_CONFIG).map(([v, c]) => ({ value: v, label: c.label }));
 const ENVIRONMENT_OPTIONS = Object.entries(ENVIRONMENT_CONFIG).map(([v, c]) => ({ value: v, label: c.label }));
+const SORT_OPTIONS = [
+  { value: 'newest', label: 'Newest first' }, { value: 'oldest', label: 'Oldest first' },
+  { value: 'severity_desc', label: 'Severity: Critical to Low' }, { value: 'severity_asc', label: 'Severity: Low to Critical' },
+];
+const SEVERITY_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+const csvCell = (value: unknown) => {
+  let text = value == null ? '' : String(value);
+  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
+};
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
@@ -74,6 +85,7 @@ export function DefectsPage() {
   const { isEditor, canBulkUploadDefects } = useProjectRole(projectId);
   const [statusFilter, setStatusFilter]       = useState('');
   const [environmentFilter, setEnvironmentFilter] = useState('');
+  const [sortOrder, setSortOrder] = useState('newest');
   const [updatingId, setUpdatingId]           = useState<string | null>(null);
   const [showCreate, setShowCreate]           = useState(false);
   const [showBulkUpload, setShowBulkUpload]   = useState(false);
@@ -108,6 +120,28 @@ export function DefectsPage() {
   });
 
   const defects = data?.defects ?? [];
+  const sortedDefects = [...defects].sort((a, b) => {
+    if (sortOrder === 'oldest') return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    if (sortOrder === 'severity_desc') return (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0) || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    if (sortOrder === 'severity_asc') return (SEVERITY_RANK[a.severity] ?? 0) - (SEVERITY_RANK[b.severity] ?? 0) || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
+
+  function exportDefectsCsv() {
+    const headers = ['Title', 'Severity', 'Detected environment', 'Status', 'Tracker', 'External reference', 'Notes', 'Test case', 'Run', 'Run environment', 'Created at', 'Updated at'];
+    const rows = sortedDefects.map(defect => [
+      defect.title, defect.severity, defect.detectedEnvironment, defect.status, defect.tracker,
+      defect.externalRef, defect.notes, defect.runResult?.testCase?.title, defect.runResult?.run.name,
+      defect.runResult?.run.env, defect.createdAt, defect.updatedAt,
+    ]);
+    const csv = `\uFEFF${[headers, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n')}`;
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `qaforge-defects-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
 
   const counts = {
     open:        defects.filter(d => d.status === 'open').length,
@@ -123,6 +157,7 @@ export function DefectsPage() {
 
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 16 }}>
+          {isEditor && <Button variant="secondary" size="sm" disabled={sortedDefects.length === 0} onClick={exportDefectsCsv}>↓ Export CSV</Button>}
           {canBulkUploadDefects && (
             <Button variant="secondary" size="sm" onClick={() => setShowBulkUpload(true)}>
               Bulk upload
@@ -134,7 +169,10 @@ export function DefectsPage() {
             </Button>
           )}
         </div>
-        <div style={{ maxWidth: 220, marginBottom: 16 }}><Select label="Detected environment" value={environmentFilter} onChange={e => setEnvironmentFilter(e.target.value)} options={[{ value: '', label: 'All environments' }, ...ENVIRONMENT_OPTIONS]} /></div>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+          <div style={{ minWidth: 220 }}><Select label="Detected environment" value={environmentFilter} onChange={e => setEnvironmentFilter(e.target.value)} options={[{ value: '', label: 'All environments' }, ...ENVIRONMENT_OPTIONS]} /></div>
+          <div style={{ minWidth: 220 }}><Select label="Sort by" value={sortOrder} onChange={e => setSortOrder(e.target.value)} options={SORT_OPTIONS} /></div>
+        </div>
 
         {/* Stats */}
         <div className="grid-4" style={{ marginBottom: 24 }}>
@@ -184,12 +222,12 @@ export function DefectsPage() {
             />
           )}
 
-          {defects.length > 0 && defects.map((defect, i) => {
+          {sortedDefects.length > 0 && sortedDefects.map((defect, i) => {
             const tc   = TRACKER_CONFIG[defect.tracker]    ?? TRACKER_CONFIG.internal;
             const sc   = STATUS_CONFIG[defect.status]     ?? STATUS_CONFIG.open;
             const sevc = SEVERITY_CONFIG[defect.severity] ?? SEVERITY_CONFIG.medium;
             const envc = ENVIRONMENT_CONFIG[defect.detectedEnvironment] ?? ENVIRONMENT_CONFIG.unknown;
-            const last = i === defects.length - 1;
+            const last = i === sortedDefects.length - 1;
 
             return (
               <div key={defect.id} style={{
