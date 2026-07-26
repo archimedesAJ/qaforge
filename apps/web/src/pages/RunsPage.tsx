@@ -617,21 +617,6 @@ export function RunsPage() {
           ))}
         </Modal>
 
-        <Modal open={showRenameRun} onClose={() => setShowRenameRun(false)} title="Rename run" footer={<><Button variant="secondary" onClick={() => setShowRenameRun(false)}>Cancel</Button><Button variant="primary" loading={renameRun.isPending} onClick={() => { if (!renameRunName.trim()) { setRunUpdateError('Run name is required'); return; } renameRun.mutate(); }}>Save name</Button></>}>
-          {runUpdateError && <div style={{ marginBottom: 12 }}><Alert type="error">{runUpdateError}</Alert></div>}
-          <Input label="Run name" value={renameRunName} onChange={event => { setRenameRunName(event.target.value); setRunUpdateError(''); }} autoFocus maxLength={200} />
-        </Modal>
-
-        <Modal open={showAddCases} onClose={() => setShowAddCases(false)} title="Add test cases to run" maxWidth={700} footer={<><Button variant="secondary" onClick={() => setShowAddCases(false)}>Cancel</Button><Button variant="primary" loading={addRunCases.isPending} disabled={additionalCaseIds.size === 0} onClick={() => addRunCases.mutate()}>Add {additionalCaseIds.size || ''} case{additionalCaseIds.size === 1 ? '' : 's'}</Button></>}>
-          {runUpdateError && <div style={{ marginBottom: 12 }}><Alert type="error">{runUpdateError}</Alert></div>}
-          <Input label="Search project cases" value={caseSearch} onChange={event => setCaseSearch(event.target.value)} placeholder="Search by title…" />
-          {loadingCases ? <div style={{ padding: 24, textAlign: 'center' }}><Spinner /></div> : availableAdditionalCases.length === 0 ? <EmptyState icon="✓" title="No additional cases available" description="All matching active project cases are already assigned to this run." /> : <div style={{ maxHeight: 360, overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 8 }}>
-            {availableAdditionalCases.map(testCase => <label key={testCase.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: '1px solid var(--border-color)', cursor: 'pointer' }}>
-              <input type="checkbox" checked={additionalCaseIds.has(testCase.id)} onChange={() => setAdditionalCaseIds(current => { const next = new Set(current); if (next.has(testCase.id)) next.delete(testCase.id); else next.add(testCase.id); return next; })} />
-              <span style={{ flex: 1 }}><span style={{ fontWeight: 500 }}>{testCase.title}</span><span style={{ display: 'block', color: 'var(--gray-400)', fontSize: '0.75rem', marginTop: 2 }}>{TYPE_LABELS[testCase.type as TestType] ?? testCase.type} · {testCase.priority.toUpperCase()}</span></span>
-            </label>)}
-          </div>}
-        </Modal>
       </AppLayout>
     );
   }
@@ -1068,6 +1053,22 @@ export function RunsPage() {
               </div>
             )}
           </div>
+        </Modal>
+
+        <Modal open={showRenameRun} onClose={() => setShowRenameRun(false)} title="Rename run" footer={<><Button variant="secondary" onClick={() => setShowRenameRun(false)}>Cancel</Button><Button variant="primary" loading={renameRun.isPending} onClick={() => { if (!renameRunName.trim()) { setRunUpdateError('Run name is required'); return; } renameRun.mutate(); }}>Save name</Button></>}>
+          {runUpdateError && <div style={{ marginBottom: 12 }}><Alert type="error">{runUpdateError}</Alert></div>}
+          <Input label="Run name" value={renameRunName} onChange={event => { setRenameRunName(event.target.value); setRunUpdateError(''); }} autoFocus maxLength={200} />
+        </Modal>
+
+        <Modal open={showAddCases} onClose={() => setShowAddCases(false)} title="Add test cases to run" maxWidth={700} footer={<><Button variant="secondary" onClick={() => setShowAddCases(false)}>Cancel</Button><Button variant="primary" loading={addRunCases.isPending} disabled={additionalCaseIds.size === 0} onClick={() => addRunCases.mutate()}>Add {additionalCaseIds.size || ''} case{additionalCaseIds.size === 1 ? '' : 's'}</Button></>}>
+          {runUpdateError && <div style={{ marginBottom: 12 }}><Alert type="error">{runUpdateError}</Alert></div>}
+          <Input label="Search project cases" value={caseSearch} onChange={event => setCaseSearch(event.target.value)} placeholder="Search by title…" />
+          {loadingCases ? <div style={{ padding: 24, textAlign: 'center' }}><Spinner /></div> : availableAdditionalCases.length === 0 ? <EmptyState icon="✓" title="No additional cases available" description="All matching active project cases are already assigned to this run." /> : <div style={{ maxHeight: 360, overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 8 }}>
+            {availableAdditionalCases.map(testCase => <label key={testCase.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: '1px solid var(--border-color)', cursor: 'pointer' }}>
+              <input type="checkbox" checked={additionalCaseIds.has(testCase.id)} onChange={() => setAdditionalCaseIds(current => { const next = new Set(current); if (next.has(testCase.id)) next.delete(testCase.id); else next.add(testCase.id); return next; })} />
+              <span style={{ flex: 1 }}><span style={{ fontWeight: 500 }}>{testCase.title}</span><span style={{ display: 'block', color: 'var(--gray-400)', fontSize: '0.75rem', marginTop: 2 }}>{TYPE_LABELS[testCase.type as TestType] ?? testCase.type} · {testCase.priority.toUpperCase()}</span></span>
+            </label>)}
+          </div>}
         </Modal>
       </AppLayout>
     );
