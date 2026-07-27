@@ -57,6 +57,12 @@ const LearningQuerySchema = z.object({
   status: z.enum(LEARNING_STATUSES).optional(),
   type: z.enum(LEARNING_TYPES).optional(),
 });
+const LearningTimeEntrySchema = z.object({
+  loggedDate: z.string().date(),
+  hours: z.number().positive().max(24),
+  note: z.string().trim().max(1000).optional(),
+  source: z.enum(['manual', 'one_on_one']).default('manual'),
+});
 
 const ReviewUpdateSchema = z.object({
   status: z.enum(['draft', 'ready', 'presented', 'closed']).optional(),
@@ -113,8 +119,9 @@ function nextMonth(date: Date) {
 
 async function unitSnapshotContent(periodStart: Date, periodEnd: Date): Promise<{ highlights: string[]; focus: string[] }> {
   const period = { gte: periodStart, lt: periodEnd };
-  const [testCasesCreated, defectsIdentified, defectsResolved, defectsFromRuns, criticalProductionDefects, resolvedRecords, resultGroups, priorityDefects, activePlans] = await Promise.all([
+  const [testCasesCreated, totalTestCases, defectsIdentified, defectsResolved, defectsFromRuns, criticalProductionDefects, resolvedRecords, resultGroups, priorityDefects, activePlans, activeProjectRows] = await Promise.all([
     prisma.testCase.count({ where: { createdAt: period, archived: false } }),
+    prisma.testCase.count({ where: { archived: false } }),
     prisma.defect.count({ where: { createdAt: period } }),
     prisma.defect.count({ where: { updatedAt: period, status: { in: ['resolved', 'closed'] } } }),
     prisma.defect.count({ where: { createdAt: period, runResultId: { not: null } } }),
@@ -134,7 +141,15 @@ async function unitSnapshotContent(periodStart: Date, periodEnd: Date): Promise<
       select: { name: true, milestone: true, endsAt: true, project: { select: { name: true } } },
       orderBy: { endsAt: 'asc' }, take: 3,
     }),
+    prisma.activityLog.findMany({
+      where: { createdAt: period, projectId: { not: null } },
+      select: { projectId: true }, distinct: ['projectId'],
+    }),
   ]);
+  const activeProjectIds = activeProjectRows.flatMap(row => row.projectId ? [row.projectId] : []);
+  const staleCases = activeProjectIds.length > 0
+    ? await prisma.coverageSnapshot.count({ where: { state: 'stale', projectId: { in: activeProjectIds } } })
+    : 0;
   const pass = resultGroups.find(group => group.status === 'pass')?._count.id ?? 0;
   const fail = resultGroups.find(group => group.status === 'fail')?._count.id ?? 0;
   const passRate = pass + fail > 0 ? Math.round(pass / (pass + fail) * 100) : null;
@@ -154,12 +169,13 @@ async function unitSnapshotContent(periodStart: Date, periodEnd: Date): Promise<
     ...(passRate !== null && passRate < 90 ? [`Raise regression pass rate from ${passRate}% to the 90% target`] : []),
     ...(detectionRate !== null && detectionRate < 85 ? [`Improve defect detection rate from ${detectionRate}% to at least 85%`] : []),
     ...(resolutionHours !== null && resolutionHours > 24 ? [`Reduce average defect resolution from ${resolutionHours} hours to 24 hours or less`] : []),
+    ...(staleCases > 0 ? [`Review and update ${staleCases} stale test case${staleCases === 1 ? '' : 's'} across active projects`] : []),
     ...(priorityDefects > 0 ? [`Resolve ${priorityDefects} open critical/high-severity defect${priorityDefects === 1 ? '' : 's'}`] : []),
     ...activePlans.map(plan => `Deliver ${plan.name}${plan.milestone ? ` — ${plan.milestone}` : ''} (${plan.project.name})`),
   ];
   return {
     highlights: [
-      `${testCasesCreated} test case${testCasesCreated === 1 ? '' : 's'} created this period`,
+      `${testCasesCreated} test case${testCasesCreated === 1 ? '' : 's'} created this period, making the overall total ${totalTestCases}`,
       `${defectsIdentified} defect${defectsIdentified === 1 ? '' : 's'} identified; ${defectsResolved} resolved`,
       ...(positiveKpis.length ? [`Positive KPIs: ${positiveKpis.join(' · ')}`] : []),
     ],
@@ -174,7 +190,10 @@ async function withTrackedLearning<T extends {
   const periodEnd = nextMonth(review.reportingPeriod);
   const records = await prisma.leadershipLearningRecord.findMany({
     where: { createdById: userId, employeeId: { in: review.entries.map(entry => entry.employeeId) } },
-    select: { employeeId: true, title: true, provider: true, status: true, completionDate: true, learningHours: true },
+    select: {
+      employeeId: true, title: true, provider: true, status: true, completionDate: true, learningHours: true,
+      timeEntries: { where: { loggedDate: { gte: review.reportingPeriod, lt: periodEnd } }, select: { hours: true } },
+    },
     orderBy: { updatedAt: 'desc' },
   });
   const recordsByEmployee = new Map<string, typeof records>();
@@ -188,9 +207,8 @@ async function withTrackedLearning<T extends {
       return {
         ...entry,
         learningDevelopment: uniqueBullets(periodRecords.map(record => `${record.title}${record.provider ? ` — ${record.provider}` : ''} (${record.status.replace('_', ' ')})`)),
-        ldHours: employeeRecords.filter(record => record.status === 'completed' && record.completionDate
-          && record.completionDate >= review.reportingPeriod && record.completionDate < periodEnd)
-          .reduce((sum, record) => sum + record.learningHours, 0),
+        ldHours: employeeRecords.reduce((sum, record) => sum
+          + record.timeEntries.reduce((entrySum, entry) => entrySum + entry.hours, 0), 0),
       };
     }),
   } as T;
@@ -310,7 +328,10 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
     return {
       records: await prisma.leadershipLearningRecord.findMany({
         where: { createdById: userId, ...(query.employeeId && { employeeId: query.employeeId }), ...(query.status && { status: query.status }), ...(query.type && { type: query.type }) },
-        include: { employee: { select: { id: true, name: true, email: true } } },
+        include: {
+          employee: { select: { id: true, name: true, email: true } },
+          timeEntries: { orderBy: [{ loggedDate: 'desc' }, { createdAt: 'desc' }] },
+        },
         orderBy: [{ status: 'asc' }, { targetCompletionDate: 'asc' }, { createdAt: 'desc' }],
       }),
     };
@@ -319,7 +340,7 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
   app.get('/learning-records/:recordId', async (req, reply) => {
     const { userId } = req.user as { userId: string };
     const { recordId } = req.params as { recordId: string };
-    const record = await prisma.leadershipLearningRecord.findFirst({ where: { id: recordId, createdById: userId }, include: { employee: { select: { id: true, name: true, email: true } } } });
+    const record = await prisma.leadershipLearningRecord.findFirst({ where: { id: recordId, createdById: userId }, include: { employee: { select: { id: true, name: true, email: true } }, timeEntries: { orderBy: [{ loggedDate: 'desc' }, { createdAt: 'desc' }] } } });
     if (!record) return reply.code(404).send({ error: 'Learning record not found' });
     return record;
   });
@@ -339,7 +360,7 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
         expiryDate: body.expiryDate ? new Date(body.expiryDate) : null,
         learningHours: body.learningHours, evidenceUrl: body.evidenceUrl || null, notes: body.notes || null,
       },
-      include: { employee: { select: { id: true, name: true, email: true } } },
+      include: { employee: { select: { id: true, name: true, email: true } }, timeEntries: true },
     });
     return reply.code(201).send(record);
   });
@@ -363,7 +384,7 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
         expiryDate: body.expiryDate ? new Date(body.expiryDate) : null,
         learningHours: body.learningHours, evidenceUrl: body.evidenceUrl || null, notes: body.notes || null,
       },
-      include: { employee: { select: { id: true, name: true, email: true } } },
+      include: { employee: { select: { id: true, name: true, email: true } }, timeEntries: { orderBy: [{ loggedDate: 'desc' }, { createdAt: 'desc' }] } },
     });
   });
 
@@ -373,6 +394,32 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
     const existing = await prisma.leadershipLearningRecord.findFirst({ where: { id: recordId, createdById: userId }, select: { id: true } });
     if (!existing) return reply.code(404).send({ error: 'Learning record not found' });
     await prisma.leadershipLearningRecord.delete({ where: { id: recordId } });
+    return reply.code(204).send();
+  });
+
+  app.post('/learning-records/:recordId/time-entries', async (req, reply) => {
+    const { userId } = req.user as { userId: string };
+    const { recordId } = req.params as { recordId: string };
+    const body = LearningTimeEntrySchema.parse(req.body);
+    if (body.loggedDate > new Date().toISOString().slice(0, 10)) {
+      return reply.code(400).send({ error: 'Learning date cannot be in the future' });
+    }
+    const record = await prisma.leadershipLearningRecord.findFirst({ where: { id: recordId, createdById: userId }, select: { id: true } });
+    if (!record) return reply.code(404).send({ error: 'L&D record not found' });
+    const entry = await prisma.leadershipLearningTimeEntry.create({
+      data: { learningRecordId: recordId, loggedDate: new Date(body.loggedDate), hours: body.hours, note: body.note || null, source: body.source },
+    });
+    return reply.code(201).send(entry);
+  });
+
+  app.delete('/learning-time-entries/:entryId', async (req, reply) => {
+    const { userId } = req.user as { userId: string };
+    const { entryId } = req.params as { entryId: string };
+    const entry = await prisma.leadershipLearningTimeEntry.findFirst({
+      where: { id: entryId, learningRecord: { createdById: userId } }, select: { id: true },
+    });
+    if (!entry) return reply.code(404).send({ error: 'L&D time entry not found' });
+    await prisma.leadershipLearningTimeEntry.delete({ where: { id: entryId } });
     return reply.code(204).send();
   });
 
@@ -413,6 +460,7 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
       }),
       prisma.leadershipLearningRecord.findMany({
         where: { createdById: userId, employeeId: { in: body.reportIds } },
+        include: { timeEntries: { where: { loggedDate: { gte: periodStart, lt: periodEnd } }, select: { hours: true } } },
         orderBy: { updatedAt: 'desc' }, take: 200,
       }),
     ]);
@@ -474,7 +522,8 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
               ...periodLearning.map(describeLearning),
             ]),
             managerFeedback: uniqueBullets(userMeetings.flatMap(meeting => stringList(meeting.managerFeedback))),
-            ldHours: userLearning.filter(record => record.status === 'completed' && record.completionDate && record.completionDate >= periodStart && record.completionDate < periodEnd).reduce((sum, record) => sum + record.learningHours, 0),
+            ldHours: userLearning.reduce((sum, record) => sum
+              + record.timeEntries.reduce((entrySum, entry) => entrySum + entry.hours, 0), 0),
           };
         }) },
       },
@@ -488,7 +537,15 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
     const { reviewId } = req.params as { reviewId: string };
     const review = await prisma.leadershipReview.findFirst({ where: { id: reviewId, presenterId: userId }, include: reviewInclude });
     if (!review) return reply.code(404).send({ error: 'Review not found' });
-    return withTrackedLearning(review, userId);
+    const [reviewWithLearning, snapshotContent] = await Promise.all([
+      withTrackedLearning(review, userId),
+      unitSnapshotContent(review.reportingPeriod, nextMonth(review.reportingPeriod)),
+    ]);
+    return {
+      ...reviewWithLearning,
+      unitHighlights: snapshotContent.highlights,
+      nextPeriodFocus: snapshotContent.focus,
+    };
   });
 
   app.post('/reviews/:reviewId/entries/:entryId/ai-draft', async (req, reply) => {
@@ -523,7 +580,11 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
             { targetCompletionDate: inPeriod }, { completionDate: inPeriod },
           ],
         },
-        select: { title: true, type: true, provider: true, skillArea: true, status: true, startDate: true, targetCompletionDate: true, completionDate: true, learningHours: true },
+        select: {
+          title: true, type: true, provider: true, skillArea: true, status: true, startDate: true,
+          targetCompletionDate: true, completionDate: true, learningHours: true,
+          timeEntries: { where: { loggedDate: inPeriod }, select: { hours: true } },
+        },
         orderBy: { updatedAt: 'desc' }, take: 50,
       }),
       prisma.testPlan.findMany({
@@ -557,7 +618,8 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
           title: record.title, type: record.type, provider: record.provider, skillArea: record.skillArea,
           status: record.status, startDate: record.startDate?.toISOString().slice(0, 10),
           targetCompletionDate: record.targetCompletionDate?.toISOString().slice(0, 10),
-          completionDate: record.completionDate?.toISOString().slice(0, 10), learningHours: record.learningHours,
+          completionDate: record.completionDate?.toISOString().slice(0, 10),
+          learningHours: record.timeEntries.reduce((sum, entry) => sum + entry.hours, 0),
         })),
         plans: plans.map(plan => ({
           name: plan.name, project: plan.project.name, milestone: plan.milestone,

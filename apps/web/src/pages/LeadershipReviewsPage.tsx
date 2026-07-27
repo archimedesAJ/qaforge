@@ -23,7 +23,9 @@ interface LearningRecord {
   id: string; title: string; type: string; provider?: string | null; skillArea?: string | null; status: string;
   startDate?: string | null; targetCompletionDate?: string | null; completionDate?: string | null; expiryDate?: string | null;
   learningHours: number; evidenceUrl?: string | null; notes?: string | null; employee: Person;
+  timeEntries: LearningTimeEntry[];
 }
+interface LearningTimeEntry { id: string; loggedDate: string; hours: number; note?: string | null; source: string }
 interface ReviewListItem { id: string; department: string; unitName: string; reportingPeriod: string; meetingDate?: string | null; status: string; _count: { entries: number } }
 interface ReviewEntry {
   id: string; employee: Person; jobTitle?: string | null; teamUnit?: string | null; ldHours: number;
@@ -269,7 +271,9 @@ function LearningTracker({ users }: { users: Person[] }) {
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [editRecord, setEditRecord] = useState<LearningRecord | null>(null);
+  const [logRecord, setLogRecord] = useState<LearningRecord | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<LearningRecord | null>(null);
+  const [confirmTimeDelete, setConfirmTimeDelete] = useState<LearningTimeEntry | null>(null);
   const [employeeFilter, setEmployeeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -288,6 +292,11 @@ function LearningTracker({ users }: { users: Person[] }) {
   const remove = useMutation({
     mutationFn: (recordId: string) => api.delete(`leadership/learning-records/${recordId}`),
     onSuccess: () => { setError(''); setConfirmDelete(null); qc.invalidateQueries({ queryKey: ['leadership-learning'] }); },
+    onError: (err: Error) => setError(err.message),
+  });
+  const removeTime = useMutation({
+    mutationFn: (entryId: string) => api.delete(`leadership/learning-time-entries/${entryId}`),
+    onSuccess: () => { setError(''); setConfirmTimeDelete(null); qc.invalidateQueries({ queryKey: ['leadership-learning'] }); },
     onError: (err: Error) => setError(err.message),
   });
   const records = query.data?.records ?? [];
@@ -338,17 +347,38 @@ function LearningTracker({ users }: { users: Person[] }) {
             <span style={{ fontSize: '0.75rem', textTransform: 'capitalize', padding: '4px 9px', borderRadius: 12, background: record.status === 'completed' ? 'var(--color-success-light)' : record.status === 'in_progress' ? 'var(--color-info-light)' : 'var(--gray-100)' }}>{record.status.replace('_', ' ')}</span>
             {isOverdue && <span style={{ color: 'var(--color-danger)', fontSize: '0.75rem', fontWeight: 600 }}>Overdue</span>}
             {isExpiring && <span style={{ color: 'var(--color-warning)', fontSize: '0.75rem', fontWeight: 600 }}>Expiring soon</span>}
+            <Button variant="primary" size="sm" onClick={() => { setError(''); setLogRecord(record); }}>+ Log hours</Button>
             <Button variant="secondary" size="sm" onClick={() => { setError(''); setEditRecord(record); }}>Edit</Button>
             <Button variant="danger" size="sm" onClick={() => setConfirmDelete(record)}>Delete</Button>
           </div>
-          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 10, color: 'var(--gray-500)', fontSize: '0.8125rem' }}><span>Start: {displayDate(record.startDate)}</span><span>Target: {displayDate(record.targetCompletionDate)}</span><span>Completed: {displayDate(record.completionDate)}</span>{record.expiryDate && <span>Expires: {displayDate(record.expiryDate)}</span>}<span>{record.learningHours} hour(s)</span>{record.evidenceUrl && <a href={record.evidenceUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-primary)' }}>Evidence ↗</a>}</div>
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 10, color: 'var(--gray-500)', fontSize: '0.8125rem' }}><span>Start: {displayDate(record.startDate)}</span><span>Target: {displayDate(record.targetCompletionDate)}</span><span>Completed: {displayDate(record.completionDate)}</span>{record.expiryDate && <span>Expires: {displayDate(record.expiryDate)}</span>}<strong>{record.timeEntries.reduce((sum, entry) => sum + entry.hours, 0)} hour(s) logged</strong>{record.evidenceUrl && <a href={record.evidenceUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-primary)' }}>Evidence ↗</a>}</div>
           {record.notes && <div style={{ marginTop: 10, fontSize: '0.875rem', color: 'var(--gray-600)' }}>{record.notes}</div>}
+          {record.timeEntries.length > 0 && <div style={{ marginTop: 12, borderTop: '1px solid var(--border-color)', paddingTop: 8 }}>{record.timeEntries.map(entry => <div key={entry.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '5px 0', fontSize: '0.8125rem' }}><strong>{entry.hours}h</strong><span>{displayDate(entry.loggedDate)}</span><span style={{ color: 'var(--gray-500)' }}>{entry.source === 'one_on_one' ? 'Reported during 1:1' : 'Manual'}{entry.note ? ` · ${entry.note}` : ''}</span><span style={{ flex: 1 }} /><Button variant="danger" size="sm" onClick={() => setConfirmTimeDelete(entry)}>Delete</Button></div>)}</div>}
         </div>;
       })}
     </div>)}
     {(showCreate || editRecord) && <LearningFormModal open users={users} record={editRecord ?? undefined} error={error} setError={setError} onClose={closeForm} onSaved={saved} />}
+    {logRecord && <LearningTimeModal open record={logRecord} error={error} setError={setError} onClose={() => { setError(''); setLogRecord(null); }} onSaved={() => { setError(''); setLogRecord(null); qc.invalidateQueries({ queryKey: ['leadership-learning'] }); }} />}
     <ConfirmDialog open={!!confirmDelete} title="Delete L&D record" message={`Permanently delete “${confirmDelete?.title ?? 'this learning record'}”? This cannot be undone.`} confirmLabel="Delete" onConfirm={() => { if (confirmDelete) remove.mutate(confirmDelete.id); }} onCancel={() => setConfirmDelete(null)} />
+    <ConfirmDialog open={!!confirmTimeDelete} title="Delete logged L&D hours" message={`Delete this ${confirmTimeDelete?.hours ?? ''}-hour learning entry?`} confirmLabel="Delete" onConfirm={() => { if (confirmTimeDelete) removeTime.mutate(confirmTimeDelete.id); }} onCancel={() => setConfirmTimeDelete(null)} />
   </div>;
+}
+
+function LearningTimeModal({ open, record, error, setError, onClose, onSaved }: { open: boolean; record: LearningRecord; error: string; setError: (value: string) => void; onClose: () => void; onSaved: () => void }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [loggedDate, setLoggedDate] = useState(today); const [hours, setHours] = useState('1'); const [source, setSource] = useState('one_on_one'); const [note, setNote] = useState('');
+  const save = useMutation({
+    mutationFn: () => api.post(`leadership/learning-records/${record.id}/time-entries`, { loggedDate, hours: Number(hours), source, note: note.trim() || undefined }),
+    onSuccess: onSaved, onError: (err: Error) => setError(err.message),
+  });
+  return <Modal open={open} onClose={onClose} title={`Log L&D hours · ${record.employee.name}`} footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button variant="primary" loading={save.isPending} onClick={() => { if (!loggedDate || Number(hours) <= 0) { setError('Date and hours greater than zero are required.'); return; } setError(''); save.mutate(); }}>Log hours</Button></>}>
+    {error && <div style={{ marginBottom: 14 }}><Alert type="error">{error}</Alert></div>}
+    <div style={{ marginBottom: 14 }}><Alert type="info">Course: {record.title}. These dated hours will be counted in the matching monthly leadership report.</Alert></div>
+    <Input label="Learning date" type="date" max={today} value={loggedDate} onChange={event => setLoggedDate(event.target.value)} />
+    <Input label="Hours spent" type="number" min="0.25" max="24" step="0.25" value={hours} onChange={event => setHours(event.target.value)} />
+    <Select label="Source" value={source} onChange={event => setSource(event.target.value)} options={[{ value: 'one_on_one', label: 'Reported during 1:1' }, { value: 'manual', label: 'Manual entry' }]} />
+    <label className="label">Progress note (optional)</label><textarea className="input" rows={3} value={note} onChange={event => setNote(event.target.value)} placeholder="e.g. Completed modules 3 and 4" style={{ resize: 'vertical' }} />
+  </Modal>;
 }
 
 function LearningFormModal({ open, users, record, error, setError, onClose, onSaved }: { open: boolean; users: Person[]; record?: LearningRecord; error: string; setError: (value: string) => void; onClose: () => void; onSaved: () => void }) {
@@ -371,7 +401,7 @@ function LearningFormModal({ open, users, record, error, setError, onClose, onSa
       <Input label="Target completion" type="date" value={targetDate} onChange={event => setTargetDate(event.target.value)} />
       <Input label="Completion date" type="date" max={today} value={completionDate} onChange={event => setCompletionDate(event.target.value)} />
       <Input label="Certification expiry / renewal" type="date" value={expiryDate} onChange={event => setExpiryDate(event.target.value)} />
-      <Input label="Learning hours" type="number" min="0" step="0.5" value={hours} onChange={event => setHours(event.target.value)} />
+      <Input label="Estimated total course hours (optional)" type="number" min="0" step="0.5" value={hours} onChange={event => setHours(event.target.value)} hint="Monthly reports use the dated hours logged against this record, not this estimate." />
       <Input label="Evidence / certificate URL" type="url" value={evidenceUrl} onChange={event => setEvidenceUrl(event.target.value)} placeholder="https://..." />
     </div>
     <label className="label">Progress notes</label><textarea className="input" rows={4} value={notes} onChange={event => setNotes(event.target.value)} style={{ resize: 'vertical' }} />
@@ -402,7 +432,7 @@ function UnitEditor({ review, onSave, saving }: { review: ReviewDetail; onSave: 
 }
 
 function EntryEditor({ reviewId, entry, onSaved }: { reviewId: string; entry: ReviewEntry; onSaved: () => void }) {
-  const [jobTitle, setJobTitle] = useState(entry.jobTitle ?? ''); const [teamUnit, setTeamUnit] = useState(entry.teamUnit ?? ''); const [achieved, setAchieved] = useState(text(entry.tasksAchieved)); const [progress, setProgress] = useState(text(entry.inProgress)); const [planned, setPlanned] = useState(text(entry.planned)); const [oneOnOne, setOneOnOne] = useState(text(entry.oneOnOneSummary)); const [learning, setLearning] = useState(text(entry.learningDevelopment)); const [feedback, setFeedback] = useState(text(entry.managerFeedback)); const [ldHours, setLdHours] = useState(String(entry.ldHours)); const [saved, setSaved] = useState(false); const [aiMessage, setAiMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [jobTitle, setJobTitle] = useState(entry.jobTitle ?? ''); const [teamUnit, setTeamUnit] = useState(entry.teamUnit ?? ''); const [achieved, setAchieved] = useState(text(entry.tasksAchieved)); const [progress, setProgress] = useState(text(entry.inProgress)); const [planned, setPlanned] = useState(text(entry.planned)); const [oneOnOne, setOneOnOne] = useState(text(entry.oneOnOneSummary)); const [learning, setLearning] = useState(text(entry.learningDevelopment)); const [feedback, setFeedback] = useState(text(entry.managerFeedback)); const ldHours = String(entry.ldHours); const [saved, setSaved] = useState(false); const [aiMessage, setAiMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const aiDraft = useMutation({
     mutationFn: () => api.post<{ draft: AiEntryDraft }>(`leadership/reviews/${reviewId}/entries/${entry.id}/ai-draft`, {}),
     onSuccess: ({ draft }) => {
@@ -413,5 +443,5 @@ function EntryEditor({ reviewId, entry, onSaved }: { reviewId: string; entry: Re
     onError: (error: Error) => setAiMessage({ type: 'error', text: error.message }),
   });
   const save = useMutation({ mutationFn: () => api.patch(`leadership/reviews/${reviewId}/entries/${entry.id}`, { jobTitle, teamUnit, tasksAchieved: lines(achieved), inProgress: lines(progress), planned: lines(planned), oneOnOneSummary: lines(oneOnOne), learningDevelopment: lines(learning), managerFeedback: lines(feedback), ldHours: Number(ldHours) || 0 }), onSuccess: () => { setSaved(true); onSaved(); } });
-  return <div className="card" style={{ padding: 18 }}><div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 14 }}><h3 style={{ margin: 0, flex: 1 }}>{entry.employee.name}</h3><Button variant="secondary" loading={aiDraft.isPending} onClick={() => { setAiMessage(null); aiDraft.mutate(); }}>✦ Draft with AI</Button></div>{aiMessage && <div style={{ marginBottom: 12 }}><Alert type={aiMessage.type}>{aiMessage.text}</Alert></div>}{saved && <div style={{ marginBottom: 12 }}><Alert type="success">Direct-report slide saved.</Alert></div>}<div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}><Input label="Job title" value={jobTitle} onChange={event => setJobTitle(event.target.value)} /><Input label="Team / unit" value={teamUnit} onChange={event => setTeamUnit(event.target.value)} /><BulletField label="Tasks Achieved" value={achieved} onChange={setAchieved} /><BulletField label="In Progress" value={progress} onChange={setProgress} /><BulletField label="Planned" value={planned} onChange={setPlanned} /><BulletField label="One-on-One" value={oneOnOne} onChange={setOneOnOne} /><BulletField label="Learning & Development" value={learning} onChange={setLearning} /><BulletField label="Manager Feedback" value={feedback} onChange={setFeedback} /><Input label="L&D hours" type="number" value={ldHours} onChange={event => setLdHours(event.target.value)} /></div><div style={{ marginTop: 16 }}><Button variant="primary" loading={save.isPending} onClick={() => save.mutate()}>Save direct-report slide</Button></div></div>;
+  return <div className="card" style={{ padding: 18 }}><div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 14 }}><h3 style={{ margin: 0, flex: 1 }}>{entry.employee.name}</h3><Button variant="secondary" loading={aiDraft.isPending} onClick={() => { setAiMessage(null); aiDraft.mutate(); }}>✦ Draft with AI</Button></div>{aiMessage && <div style={{ marginBottom: 12 }}><Alert type={aiMessage.type}>{aiMessage.text}</Alert></div>}{saved && <div style={{ marginBottom: 12 }}><Alert type="success">Direct-report slide saved.</Alert></div>}<div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}><Input label="Job title" value={jobTitle} onChange={event => setJobTitle(event.target.value)} /><Input label="Team / unit" value={teamUnit} onChange={event => setTeamUnit(event.target.value)} /><BulletField label="Tasks Achieved" value={achieved} onChange={setAchieved} /><BulletField label="In Progress" value={progress} onChange={setProgress} /><BulletField label="Planned" value={planned} onChange={setPlanned} /><BulletField label="One-on-One" value={oneOnOne} onChange={setOneOnOne} /><BulletField label="Learning & Development" value={learning} onChange={setLearning} /><BulletField label="Manager Feedback" value={feedback} onChange={setFeedback} /><Input label="L&D hours (from tracker)" type="number" value={ldHours} readOnly hint="Calculated from completed L&D tracker records whose completion date falls within this reporting month." /></div><div style={{ marginTop: 16 }}><Button variant="primary" loading={save.isPending} onClick={() => save.mutate()}>Save direct-report slide</Button></div></div>;
 }

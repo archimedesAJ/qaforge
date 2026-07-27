@@ -425,10 +425,25 @@ model LeadershipLearningRecord {
 
   createdBy User @relation("LearningRecordCreator", fields: [createdById], references: [id])
   employee  User @relation("LearningRecordEmployee", fields: [employeeId], references: [id])
+  timeEntries LeadershipLearningTimeEntry[]
 
   @@index([createdById, status])
   @@index([employeeId, status])
   @@index([expiryDate])
+}
+
+model LeadershipLearningTimeEntry {
+  id               String   @id @default(uuid())
+  learningRecordId String
+  loggedDate       DateTime @db.Date
+  hours            Float
+  note             String?
+  source           String   @default("manual") // manual | one_on_one
+  createdAt        DateTime @default(now())
+
+  learningRecord LeadershipLearningRecord @relation(fields: [learningRecordId], references: [id], onDelete: Cascade)
+
+  @@index([learningRecordId, loggedDate])
 }
 
 model LeadershipReview {
