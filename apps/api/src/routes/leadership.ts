@@ -25,7 +25,7 @@ const ReviewSchema = z.object({
   department: z.string().trim().min(1).max(200),
   unitName: z.string().trim().min(1).max(200),
   reportingPeriod: z.string().date(),
-  meetingDate: z.string().date().optional(),
+  meetingDate: z.string().date(),
   reportIds: z.array(z.string().uuid()).min(1).max(50),
 });
 
@@ -306,10 +306,15 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
     if (users.length !== new Set(body.reportIds).size) return reply.code(400).send({ error: 'All direct reports must be activated editors' });
     const periodStart = new Date(body.reportingPeriod);
     const periodEnd = nextMonth(periodStart);
-    const [meetings, activities, activePlans, learningRecords] = await Promise.all([
+    const [meetings, latestMeetings, activities, activePlans, learningRecords] = await Promise.all([
       prisma.leadershipOneOnOne.findMany({
         where: { leadId: userId, reportId: { in: body.reportIds }, meetingDate: { gte: periodStart, lt: periodEnd } },
         orderBy: { meetingDate: 'desc' },
+      }),
+      prisma.leadershipOneOnOne.groupBy({
+        by: ['reportId'],
+        where: { leadId: userId, reportId: { in: body.reportIds } },
+        _max: { meetingDate: true },
       }),
       prisma.activityLog.findMany({
         where: { userId: { in: body.reportIds }, createdAt: { gte: periodStart, lt: periodEnd }, action: { in: Object.keys(activityLabel) } },
@@ -330,6 +335,7 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
     activities.forEach(activity => activitiesByUser.set(activity.userId, [...(activitiesByUser.get(activity.userId) ?? []), activity]));
     const meetingsByUser = new Map<string, typeof meetings>();
     meetings.forEach(meeting => meetingsByUser.set(meeting.reportId, [...(meetingsByUser.get(meeting.reportId) ?? []), meeting]));
+    const latestMeetingByUser = new Map(latestMeetings.map(meeting => [meeting.reportId, meeting._max.meetingDate]));
     const plansByUser = new Map<string, typeof activePlans>();
     activePlans.forEach(plan => plansByUser.set(plan.createdById, [...(plansByUser.get(plan.createdById) ?? []), plan]));
     const learningByUser = new Map<string, typeof learningRecords>();
@@ -352,11 +358,12 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
       ...actionList(meeting.actions).filter(action => action.status !== 'done').map(action => `${user.name}: ${action.action}`),
       ...(meeting.nextMeetingDate ? [`${user.name}: next 1:1 on ${meeting.nextMeetingDate.toISOString().slice(0, 10)}`] : []),
     ])));
-    const suggestedNextMeetingDate = nextMonth(body.meetingDate ? new Date(body.meetingDate) : periodStart);
+    const meetingDate = new Date(body.meetingDate);
+    const suggestedNextMeetingDate = nextMonth(meetingDate);
     const review = await prisma.leadershipReview.create({
       data: {
         presenterId: userId, department: body.department, unitName: body.unitName,
-        reportingPeriod: new Date(body.reportingPeriod), meetingDate: body.meetingDate ? new Date(body.meetingDate) : null,
+        reportingPeriod: new Date(body.reportingPeriod), meetingDate,
         unitHighlights, nextPeriodFocus, workingFeedback, challengesSupport, decisionsActions, followUps,
         nextMeetingDate: suggestedNextMeetingDate,
         entries: { create: users.map(user => {
@@ -364,6 +371,7 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
           const userActivities = activitiesByUser.get(user.id) ?? [];
           const userPlans = plansByUser.get(user.id) ?? [];
           const userLearning = learningByUser.get(user.id) ?? [];
+          const latestMeetingDate = latestMeetingByUser.get(user.id);
           const periodLearning = userLearning.filter(record => ['planned', 'in_progress'].includes(record.status) || (record.completionDate && record.completionDate >= periodStart && record.completionDate < periodEnd));
           return {
             employeeId: user.id, teamUnit: body.unitName,
@@ -372,7 +380,10 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
               ...userActivities.map(describeActivity),
             ]),
             inProgress: uniqueBullets(userPlans.map(plan => `${plan.name}${plan.milestone ? ` — ${plan.milestone}` : ''}${plan.endsAt ? ` · due ${plan.endsAt.toISOString().slice(0, 10)}` : ''}`)),
-            oneOnOneSummary: uniqueBullets(userMeetings.flatMap(meeting => meeting.presentationSummary ? [meeting.presentationSummary] : stringList(meeting.discussionPoints))),
+            oneOnOneSummary: uniqueBullets([
+              ...(latestMeetingDate ? [`Last 1:1: ${latestMeetingDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}`] : []),
+              ...userMeetings.flatMap(meeting => meeting.presentationSummary ? [meeting.presentationSummary] : stringList(meeting.discussionPoints)),
+            ]),
             learningDevelopment: uniqueBullets([
               ...periodLearning.map(describeLearning),
               ...userMeetings.flatMap(meeting => stringList(meeting.learningDevelopment)),
@@ -400,7 +411,14 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
     const { reviewId } = req.params as { reviewId: string };
     const review = await prisma.leadershipReview.findFirst({ where: { id: reviewId, presenterId: userId }, include: reviewInclude });
     if (!review) return reply.code(404).send({ error: 'Review not found' });
-    const buffer = await buildLeadershipDeck(review);
+    const oneOnOneCount = await prisma.leadershipOneOnOne.count({
+      where: {
+        leadId: userId,
+        reportId: { in: review.entries.map(entry => entry.employeeId) },
+        meetingDate: { gte: review.reportingPeriod, lt: nextMonth(review.reportingPeriod) },
+      },
+    });
+    const buffer = await buildLeadershipDeck({ ...review, oneOnOneCount });
     const period = review.reportingPeriod.toISOString().slice(0, 7);
     const safeUnit = review.unitName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
     reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
@@ -414,12 +432,17 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
     const body = ReviewUpdateSchema.parse(req.body);
     const existing = await prisma.leadershipReview.findFirst({ where: { id: reviewId, presenterId: userId } });
     if (!existing) return reply.code(404).send({ error: 'Review not found' });
+    const nextMeetingDate = body.nextMeetingDate !== undefined
+      ? (body.nextMeetingDate ? new Date(body.nextMeetingDate) : null)
+      : body.meetingDate
+        ? nextMonth(new Date(body.meetingDate))
+        : undefined;
     return prisma.leadershipReview.update({
       where: { id: reviewId },
       data: {
         ...body,
         ...(body.meetingDate !== undefined && { meetingDate: body.meetingDate ? new Date(body.meetingDate) : null }),
-        ...(body.nextMeetingDate !== undefined && { nextMeetingDate: body.nextMeetingDate ? new Date(body.nextMeetingDate) : null }),
+        ...(nextMeetingDate !== undefined && { nextMeetingDate }),
       },
       include: reviewInclude,
     });

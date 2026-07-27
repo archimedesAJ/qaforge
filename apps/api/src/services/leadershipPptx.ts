@@ -11,11 +11,13 @@ type Review = {
   department: string; unitName: string; reportingPeriod: Date; meetingDate: Date | null; nextMeetingDate: Date | null;
   presenter: { name: string };
   entries: Entry[];
+  oneOnOneCount?: number;
   unitHighlights: unknown; nextPeriodFocus: unknown; workingFeedback: unknown; challengesSupport: unknown;
   decisionsActions: unknown; crossTeamDependencies: unknown; followUps: unknown;
 };
 
 const RED = 'E2093C'; const BLACK = '0D0D0D'; const DARK = '1A1A1A'; const GREY = 'F5F5F7'; const MID = '7E7E87';
+const REPORTING_TO = 'Abraham Abbey';
 const templateAsset = (name: string) => join(process.cwd(), 'apps/api/assets/leadership-template', name);
 const asStrings = (value: unknown): string[] => Array.isArray(value) ? value.filter(item => typeof item === 'string') as string[] : [];
 const asActions = (value: unknown): { action: string; owner?: string; dueDate?: string }[] => Array.isArray(value) ? value.filter(item => item && typeof item === 'object' && 'action' in item) as { action: string; owner?: string; dueDate?: string }[] : [];
@@ -62,13 +64,22 @@ export async function buildLeadershipDeck(review: Review): Promise<Buffer> {
   slide.addText('M O N T H L Y   L E A D E R S H I P   R E V I E W', { x: 0.87, y: 1.9, w: 8, h: 0.4, fontFace: 'Arial', fontSize: 12, bold: true, color: RED, charSpacing: 2.5, margin: 0 });
   slide.addText('Leadership Review\n& Planning', { x: 0.87, y: 2.38, w: 7.6, h: 1.42, fontFace: 'Arial', fontSize: 45, bold: true, color: 'FFFFFF', margin: 0, breakLine: false });
   slide.addText('Departmental review of progress, people and plans', { x: 0.9, y: 4.08, w: 6.8, h: 0.35, fontFace: 'Arial', fontSize: 15, italic: true, color: 'C5C5CC', margin: 0 });
-  slide.addText(`DEPARTMENT\n${review.department}\n\nPRESENTED BY (TEAM LEAD)\n${review.presenter.name}\n\nREPORTING PERIOD (MONTH / YEAR)\n${period}`, { x: 0.9, y: 4.58, w: 7.25, h: 1.65, fontFace: 'Arial', fontSize: 9.5, bold: true, color: RED, breakLine: false, margin: 0, paraSpaceAfterPt: 3 });
-  slide.addText("Prepared for the Managing Director's monthly leadership review", { x: 0.9, y: 6.85, w: 6.8, h: 0.25, fontFace: 'Arial', fontSize: 8, color: MID, margin: 0 });
+  const coverFields = [
+    { label: 'DEPARTMENT', value: review.department, labelY: 4.82, valueY: 5.06, lineY: 5.32 },
+    { label: 'PRESENTED BY (TEAM LEAD)', value: REPORTING_TO, labelY: 5.48, valueY: 5.72, lineY: 5.98 },
+    { label: 'REPORTING PERIOD (MONTH / YEAR)', value: period, labelY: 6.14, valueY: 6.38, lineY: 6.64 },
+  ];
+  coverFields.forEach(field => {
+    slide.addText(field.label, { x: 0.87, y: field.labelY, w: 6, h: 0.28, fontFace: 'Arial', fontSize: 9.5, bold: true, color: RED, margin: 0 });
+    slide.addText(field.value, { x: 0.87, y: field.valueY, w: 7.4, h: 0.24, fontFace: 'Arial', fontSize: 10.5, color: 'FFFFFF', margin: 0 });
+    slide.addShape('line', { x: 0.87, y: field.lineY, w: 7.4, h: 0, line: { color: '3C3C3C', width: 1 } });
+  });
+  slide.addText("Prepared for the Managing Director's monthly leadership review", { x: 0.87, y: 6.98, w: 8, h: 0.3, fontFace: 'Arial', fontSize: 8, color: MID, margin: 0 });
 
   slide = pptx.addSlide();
   slide.addText('Unit Snapshot', { x: 0.5, y: 0.42, w: 9, h: 0.6, fontFace: 'Arial', fontSize: 34, bold: true, color: BLACK, margin: 0 });
-  slide.addText(`${review.unitName}   ·   Team Lead: ${review.presenter.name}   ·   ${period}`, { x: 0.52, y: 1.1, w: 12, h: 0.4, fontFace: 'Arial', fontSize: 14, italic: true, color: MID, margin: 0 });
-  const held = review.entries.filter(entry => asStrings(entry.oneOnOneSummary).length > 0).length;
+  slide.addText(`${review.unitName}   ·   Team Lead: ${REPORTING_TO}   ·   ${period}`, { x: 0.52, y: 1.1, w: 12, h: 0.4, fontFace: 'Arial', fontSize: 14, italic: true, color: MID, margin: 0 });
+  const held = review.oneOnOneCount ?? review.entries.filter(entry => asStrings(entry.oneOnOneSummary).some(item => !item.startsWith('Last 1:1:'))).length;
   const ldHours = review.entries.reduce((sum, entry) => sum + entry.ldHours, 0);
   const wins = review.entries.reduce((sum, entry) => sum + asStrings(entry.tasksAchieved).length, 0);
   [[String(review.entries.length), 'Direct reports'], [String(held), '1:1s held this period'], [String(ldHours), 'L&D hours logged'], [String(wins), 'Key wins delivered']].forEach(([value, label], index) => {
@@ -87,7 +98,7 @@ export async function buildLeadershipDeck(review: Review): Promise<Buffer> {
     slide.addText('MONTHLY REVIEW · DIRECT REPORT', { x: 9.07, y: 0.42, w: 3.73, h: 0.36, fontFace: 'Arial', fontSize: 9.5, bold: true, color: 'FFFFFF', align: 'center', valign: 'mid', margin: 0 });
     slide.addText(entry.employee.name, { x: 0.5, y: 0.34, w: 8.6, h: 0.62, fontFace: 'Arial', fontSize: 31, bold: true, color: BLACK, margin: 0 });
     slide.addText(`${entry.jobTitle || 'Job title'}  ·  ${entry.teamUnit || review.unitName}`, { x: 0.52, y: 1, w: 8.6, h: 0.35, fontFace: 'Arial', fontSize: 13, color: MID, margin: 0 });
-    slide.addText(`Reporting period:  ${period}\nReporting to:  ${review.presenter.name}`, { x: 8.6, y: 0.92, w: 4.2, h: 0.55, fontFace: 'Arial', fontSize: 10.5, color: BLACK, margin: 0, align: 'right', breakLine: false });
+    slide.addText(`Reporting period:  ${period}\nReporting to:  ${REPORTING_TO}`, { x: 8.6, y: 0.92, w: 4.2, h: 0.55, fontFace: 'Arial', fontSize: 10.5, color: BLACK, margin: 0, align: 'right', breakLine: false });
     slide.addShape('line', { x: 0.5, y: 1.5, w: 12.3, h: 0, line: { color: 'E3E3E8', width: 1 } });
     const cards: [string, string[], string][] = [['Tasks Achieved', asStrings(entry.tasksAchieved), 'achieved.png'], ['In Progress', asStrings(entry.inProgress), 'progress.png'], ['Planned', asStrings(entry.planned), 'planned.png'], ['One-on-One', asStrings(entry.oneOnOneSummary), 'one-on-one.png'], ['Learning & Development', asStrings(entry.learningDevelopment), 'learning.png'], ['Manager Feedback', asStrings(entry.managerFeedback), 'feedback.png']];
     cards.forEach(([title, items, icon], index) => addCard(slide, title, items, 0.5 + (index % 3) * 4.2, 1.72 + Math.floor(index / 3) * 2.68, 3.9, 2.42, icon, 3));

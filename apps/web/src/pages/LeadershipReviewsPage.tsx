@@ -47,6 +47,14 @@ const addDays = (date: string, days: number) => {
   value.setUTCDate(value.getUTCDate() + days);
   return value.toISOString().slice(0, 10);
 };
+const addMonth = (date: string) => {
+  if (!date) return '';
+  const value = new Date(`${date}T00:00:00Z`);
+  const targetYear = value.getUTCFullYear() + Math.floor((value.getUTCMonth() + 1) / 12);
+  const targetMonth = (value.getUTCMonth() + 1) % 12;
+  const lastDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(targetYear, targetMonth, Math.min(value.getUTCDate(), lastDay))).toISOString().slice(0, 10);
+};
 const currentMonthRange = () => {
   const now = new Date();
   const year = now.getFullYear();
@@ -189,14 +197,16 @@ interface UserPickerProps { users: Person[]; usersLoading: boolean; usersError: 
 
 function CreateReviewModal({ open, users, usersLoading, usersError, retryUsers, error, setError, onClose, onCreated }: UserPickerProps & { open: boolean; error: string; setError: (value: string) => void; onClose: () => void; onCreated: (id: string) => void }) {
   const [department, setDepartment] = useState(''); const [unitName, setUnitName] = useState('QA'); const [period, setPeriod] = useState(monthValue()); const [meetingDate, setMeetingDate] = useState(''); const [selected, setSelected] = useState<string[]>([]);
+  const nextMeetingDate = addMonth(meetingDate);
   const create = useMutation({ mutationFn: () => api.post<ReviewDetail>('leadership/reviews', { department, unitName, reportingPeriod: `${period}-01`, meetingDate: meetingDate || undefined, reportIds: selected }), onSuccess: review => onCreated(review.id), onError: (err: Error) => setError(err.message) });
-  return <Modal open={open} onClose={onClose} title="Create monthly leadership review" footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button variant="primary" loading={create.isPending} onClick={() => { if (!department.trim() || !unitName.trim() || !period || !selected.length) { setError('Department, unit, reporting period, and at least one direct report are required.'); return; } create.mutate(); }}>Create review</Button></>}>
+  return <Modal open={open} onClose={onClose} title="Create monthly leadership review" footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button variant="primary" loading={create.isPending} onClick={() => { if (!department.trim() || !unitName.trim() || !period || !meetingDate || !selected.length) { setError('Department, unit, reporting period, meeting date, and at least one direct report are required.'); return; } create.mutate(); }}>Create review</Button></>}>
     {error && <div style={{ marginBottom: 12 }}><Alert type="error">{error}</Alert></div>}
     <div style={{ marginBottom: 14 }}><Alert type="info">QAForge will suggest review content from activity logs, active plans, and presentation-safe one-on-one data for the selected month. You can edit everything before presenting.</Alert></div>
     <Input label="Department" value={department} onChange={event => setDepartment(event.target.value)} placeholder="e.g. Technology" />
     <Input label="Unit / team" value={unitName} onChange={event => setUnitName(event.target.value)} placeholder="e.g. Quality Assurance" />
     <Input label="Reporting period" type="month" value={period} onChange={event => setPeriod(event.target.value)} />
-    <Input label="Meeting date (optional)" type="date" value={meetingDate} onChange={event => setMeetingDate(event.target.value)} />
+    <Input label="Meeting date" type="date" value={meetingDate} onChange={event => { setMeetingDate(event.target.value); setError(''); }} hint="The next monthly review will be scheduled one calendar month later." />
+    <Input label="Next meeting date" type="date" value={nextMeetingDate} readOnly disabled={!nextMeetingDate} />
     <label className="label">Direct reports</label>
     {usersLoading ? <div style={{ padding: 18, textAlign: 'center' }}><Spinner /></div> : usersError ? <QueryError message={usersError} onRetry={retryUsers} /> : users.length === 0 ? <Alert type="info">No activated editor users are available.</Alert> : <div style={{ maxHeight: 190, overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 7 }}>{users.map(user => <label key={user.id} style={{ display: 'flex', gap: 9, padding: '8px 10px', borderBottom: '1px solid var(--border-color)', cursor: 'pointer' }}><input type="checkbox" checked={selected.includes(user.id)} onChange={event => setSelected(current => event.target.checked ? [...current, user.id] : current.filter(id => id !== user.id))} /><span><strong>{user.name}</strong><span style={{ color: 'var(--gray-400)', marginLeft: 6, fontSize: '0.8125rem' }}>{user.email}</span></span></label>)}</div>}
   </Modal>;
