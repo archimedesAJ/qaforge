@@ -37,6 +37,9 @@ describe('draftLeadershipEntry', () => {
     const body = JSON.parse(String(options.body));
     expect(body).toMatchObject({ model: 'test-model', store: false, safety_identifier: 'user-id' });
     expect(body.text.format).toMatchObject({ type: 'json_schema', strict: true });
+    expect(body.instructions).toContain('at most two short');
+    expect(body.instructions).toContain('Last 1:1: D Month YYYY');
+    expect(body.instructions).toContain('Strength: ...');
     expect(JSON.parse(body.input)).toEqual(source);
   });
 
