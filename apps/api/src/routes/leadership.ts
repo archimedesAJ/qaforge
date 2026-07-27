@@ -111,6 +111,62 @@ function nextMonth(date: Date) {
   return new Date(Date.UTC(year, targetMonth, Math.min(date.getUTCDate(), lastDay)));
 }
 
+async function unitSnapshotContent(periodStart: Date, periodEnd: Date): Promise<{ highlights: string[]; focus: string[] }> {
+  const period = { gte: periodStart, lt: periodEnd };
+  const [testCasesCreated, defectsIdentified, defectsResolved, defectsFromRuns, criticalProductionDefects, resolvedRecords, resultGroups, priorityDefects, activePlans] = await Promise.all([
+    prisma.testCase.count({ where: { createdAt: period, archived: false } }),
+    prisma.defect.count({ where: { createdAt: period } }),
+    prisma.defect.count({ where: { updatedAt: period, status: { in: ['resolved', 'closed'] } } }),
+    prisma.defect.count({ where: { createdAt: period, runResultId: { not: null } } }),
+    prisma.defect.count({ where: { createdAt: period, severity: 'critical', detectedEnvironment: 'production' } }),
+    prisma.defect.findMany({
+      where: { updatedAt: period, status: { in: ['resolved', 'closed'] } },
+      select: { createdAt: true, updatedAt: true },
+    }),
+    prisma.runResult.groupBy({
+      by: ['status'], where: { executedAt: period, status: { in: ['pass', 'fail'] } }, _count: { id: true },
+    }),
+    prisma.defect.count({
+      where: { createdAt: period, status: { in: ['open', 'in_progress'] }, severity: { in: ['critical', 'high'] } },
+    }),
+    prisma.testPlan.findMany({
+      where: { status: 'active' },
+      select: { name: true, milestone: true, endsAt: true, project: { select: { name: true } } },
+      orderBy: { endsAt: 'asc' }, take: 3,
+    }),
+  ]);
+  const pass = resultGroups.find(group => group.status === 'pass')?._count.id ?? 0;
+  const fail = resultGroups.find(group => group.status === 'fail')?._count.id ?? 0;
+  const passRate = pass + fail > 0 ? Math.round(pass / (pass + fail) * 100) : null;
+  const detectionRate = defectsIdentified > 0 ? Math.round(defectsFromRuns / defectsIdentified * 100) : null;
+  const resolutionHours = resolvedRecords.length > 0
+    ? Math.round(resolvedRecords.reduce((sum, defect) => sum + defect.updatedAt.getTime() - defect.createdAt.getTime(), 0)
+      / resolvedRecords.length / 3_600_000 * 10) / 10
+    : null;
+  const positiveKpis = [
+    ...(passRate !== null && passRate >= 90 ? [`${passRate}% regression pass rate`] : []),
+    ...(detectionRate !== null && detectionRate >= 85 ? [`${detectionRate}% defect detection rate`] : []),
+    ...(resolutionHours !== null && resolutionHours <= 24 ? [`${resolutionHours}h average defect resolution`] : []),
+    ...(criticalProductionDefects === 0 ? ['zero critical production escapes'] : []),
+  ];
+  const focus = [
+    ...(criticalProductionDefects > 0 ? [`Prevent recurrence and close corrective actions for ${criticalProductionDefects} critical production escape${criticalProductionDefects === 1 ? '' : 's'}`] : []),
+    ...(passRate !== null && passRate < 90 ? [`Raise regression pass rate from ${passRate}% to the 90% target`] : []),
+    ...(detectionRate !== null && detectionRate < 85 ? [`Improve defect detection rate from ${detectionRate}% to at least 85%`] : []),
+    ...(resolutionHours !== null && resolutionHours > 24 ? [`Reduce average defect resolution from ${resolutionHours} hours to 24 hours or less`] : []),
+    ...(priorityDefects > 0 ? [`Resolve ${priorityDefects} open critical/high-severity defect${priorityDefects === 1 ? '' : 's'}`] : []),
+    ...activePlans.map(plan => `Deliver ${plan.name}${plan.milestone ? ` — ${plan.milestone}` : ''} (${plan.project.name})`),
+  ];
+  return {
+    highlights: [
+      `${testCasesCreated} test case${testCasesCreated === 1 ? '' : 's'} created this period`,
+      `${defectsIdentified} defect${defectsIdentified === 1 ? '' : 's'} identified; ${defectsResolved} resolved`,
+      ...(positiveKpis.length ? [`Positive KPIs: ${positiveKpis.join(' · ')}`] : []),
+    ],
+    focus,
+  };
+}
+
 async function withTrackedLearning<T extends {
   reportingPeriod: Date;
   entries: Array<{ employeeId: string; learningDevelopment: unknown; ldHours: number }>;
@@ -521,7 +577,7 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
     const { reviewId } = req.params as { reviewId: string };
     const review = await prisma.leadershipReview.findFirst({ where: { id: reviewId, presenterId: userId }, include: reviewInclude });
     if (!review) return reply.code(404).send({ error: 'Review not found' });
-    const [oneOnOneCount, reviewWithLearning] = await Promise.all([
+    const [oneOnOneCount, reviewWithLearning, snapshotContent] = await Promise.all([
       prisma.leadershipOneOnOne.count({
       where: {
         leadId: userId,
@@ -530,8 +586,14 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
       },
       }),
       withTrackedLearning(review, userId),
+      unitSnapshotContent(review.reportingPeriod, nextMonth(review.reportingPeriod)),
     ]);
-    const buffer = await buildLeadershipDeck({ ...reviewWithLearning, oneOnOneCount });
+    const buffer = await buildLeadershipDeck({
+      ...reviewWithLearning,
+      unitHighlights: snapshotContent.highlights,
+      nextPeriodFocus: snapshotContent.focus,
+      oneOnOneCount,
+    });
     const period = review.reportingPeriod.toISOString().slice(0, 7);
     const safeUnit = review.unitName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
     reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');

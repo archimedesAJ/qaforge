@@ -36,12 +36,14 @@ function bulletText(items: string[], fallback = 'No update recorded', limit = 4,
   return values.map((item, index) => ({ text: item, options: { bullet: { indent: 12 }, breakLine: index < values.length - 1, color: items.length ? color : '9999A3' } }));
 }
 
-function addCard(slide: any, title: string, items: string[], x: number, y: number, w: number, h: number, icon: string, limit = 4) {
+function addCard(slide: any, title: string, items: string[], x: number, y: number, w: number, h: number, icon: string, limit = 4, showEmptyMessage = true) {
   slide.addShape('roundRect', { x, y, w, h, rectRadius: 0.05, fill: { color: GREY }, line: { color: 'E3E3E8', width: 1 }, shadow: { type: 'outer', color: 'BBBBBB', opacity: 0.18, blur: 2, angle: 45, distance: 1 } });
   slide.addShape('ellipse', { x: x + 0.22, y: y + 0.22, w: 0.48, h: 0.48, fill: { color: RED }, line: { color: RED } });
   slide.addImage({ path: templateAsset(icon), x: x + 0.33, y: y + 0.37, w: 0.27, h: 0.27 });
   slide.addText(title, { x: x + 0.86, y: y + 0.25, w: w - 1.05, h: 0.55, fontFace: 'Arial', bold: true, fontSize: 15, color: BLACK, margin: 0, valign: 'mid' });
-  slide.addText(bulletText(items, 'No update recorded', limit), { x: x + 0.26, y: y + 0.82, w: w - 0.5, h: h - 1.0, fontFace: 'Arial', fontSize: 10.5, color: '30303A', margin: 0.03, breakLine: false, valign: 'top', paraSpaceAfterPt: 7 });
+  if (items.length || showEmptyMessage) {
+    slide.addText(bulletText(items, 'No update recorded', limit), { x: x + 0.26, y: y + 0.82, w: w - 0.5, h: h - 1.0, fontFace: 'Arial', fontSize: 10.5, color: '30303A', margin: 0.03, breakLine: false, valign: 'top', paraSpaceAfterPt: 7 });
+  }
 }
 
 export async function buildLeadershipDeck(review: Review): Promise<Buffer> {
@@ -81,15 +83,15 @@ export async function buildLeadershipDeck(review: Review): Promise<Buffer> {
   slide.addText(`${review.unitName}   ·   Team Lead: ${REPORTING_TO}   ·   ${period}`, { x: 0.52, y: 1.1, w: 12, h: 0.4, fontFace: 'Arial', fontSize: 14, italic: true, color: MID, margin: 0 });
   const held = review.oneOnOneCount ?? review.entries.filter(entry => asStrings(entry.oneOnOneSummary).some(item => !item.startsWith('Last 1:1:'))).length;
   const ldHours = review.entries.reduce((sum, entry) => sum + entry.ldHours, 0);
-  const wins = review.entries.reduce((sum, entry) => sum + asStrings(entry.tasksAchieved).length, 0);
+  const wins = asStrings(review.unitHighlights).length;
   [[String(review.entries.length), 'Direct reports'], [String(held), '1:1s held this period'], [String(ldHours), 'L&D hours logged'], [String(wins), 'Key wins delivered']].forEach(([value, label], index) => {
     const x = 0.5 + index * 3.13;
     slide.addShape('roundRect', { x, y: 1.8, w: 2.85, h: 1.72, fill: { color: RED }, line: { color: RED }, rectRadius: 0.06, shadow: { type: 'outer', color: 'BBBBBB', opacity: 0.2, blur: 2, angle: 45, distance: 1 } });
     slide.addText(value, { x: x + 0.1, y: 2.06, w: 2.65, h: 0.9, fontFace: 'Arial', fontSize: 35, bold: true, color: 'FFFFFF', align: 'center', margin: 0, valign: 'mid' });
     slide.addText(label, { x: x + 0.15, y: 2.96, w: 2.55, h: 0.42, fontFace: 'Arial', fontSize: 12, bold: true, color: 'FFFFFF', align: 'center', margin: 0 });
   });
-  addCard(slide, 'Unit highlights', asStrings(review.unitHighlights), 0.5, 3.88, 6.15, 2.72, 'trophy.png', 3);
-  addCard(slide, 'Focus for next period', asStrings(review.nextPeriodFocus), 6.85, 3.88, 5.95, 2.72, 'focus.png', 3);
+  addCard(slide, 'Unit highlights', asStrings(review.unitHighlights), 0.5, 3.88, 6.15, 2.72, 'trophy.png', 4);
+  addCard(slide, 'Focus for next period', asStrings(review.nextPeriodFocus), 6.85, 3.88, 5.95, 2.72, 'focus.png', 3, false);
   addFooter(slide, 'Unit snapshot');
 
   for (const entry of review.entries) {
