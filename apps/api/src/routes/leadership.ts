@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authenticate } from '../middleware/auth.js';
 import { buildLeadershipDeck } from '../services/leadershipPptx.js';
+import { draftLeadershipEntry } from '../services/openaiLeadership.js';
 
 const BulletList = z.array(z.string().trim().min(1).max(500)).max(20).default([]);
 const ActionList = z.array(z.object({
@@ -108,6 +109,35 @@ function nextMonth(date: Date) {
   const targetMonth = date.getUTCMonth() + 1;
   const lastDay = new Date(Date.UTC(year, targetMonth + 1, 0)).getUTCDate();
   return new Date(Date.UTC(year, targetMonth, Math.min(date.getUTCDate(), lastDay)));
+}
+
+async function withTrackedLearning<T extends {
+  reportingPeriod: Date;
+  entries: Array<{ employeeId: string; learningDevelopment: unknown; ldHours: number }>;
+}>(review: T, userId: string): Promise<T> {
+  const periodEnd = nextMonth(review.reportingPeriod);
+  const records = await prisma.leadershipLearningRecord.findMany({
+    where: { createdById: userId, employeeId: { in: review.entries.map(entry => entry.employeeId) } },
+    select: { employeeId: true, title: true, provider: true, status: true, completionDate: true, learningHours: true },
+    orderBy: { updatedAt: 'desc' },
+  });
+  const recordsByEmployee = new Map<string, typeof records>();
+  records.forEach(record => recordsByEmployee.set(record.employeeId, [...(recordsByEmployee.get(record.employeeId) ?? []), record]));
+  return {
+    ...review,
+    entries: review.entries.map(entry => {
+      const employeeRecords = recordsByEmployee.get(entry.employeeId) ?? [];
+      const periodRecords = employeeRecords.filter(record => ['planned', 'in_progress'].includes(record.status)
+        || (record.completionDate && record.completionDate >= review.reportingPeriod && record.completionDate < periodEnd));
+      return {
+        ...entry,
+        learningDevelopment: uniqueBullets(periodRecords.map(record => `${record.title}${record.provider ? ` — ${record.provider}` : ''} (${record.status.replace('_', ' ')})`)),
+        ldHours: employeeRecords.filter(record => record.status === 'completed' && record.completionDate
+          && record.completionDate >= review.reportingPeriod && record.completionDate < periodEnd)
+          .reduce((sum, record) => sum + record.learningHours, 0),
+      };
+    }),
+  } as T;
 }
 
 const activityLabel: Record<string, string> = {
@@ -386,7 +416,6 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
             ]),
             learningDevelopment: uniqueBullets([
               ...periodLearning.map(describeLearning),
-              ...userMeetings.flatMap(meeting => stringList(meeting.learningDevelopment)),
             ]),
             managerFeedback: uniqueBullets(userMeetings.flatMap(meeting => stringList(meeting.managerFeedback))),
             ldHours: userLearning.filter(record => record.status === 'completed' && record.completionDate && record.completionDate >= periodStart && record.completionDate < periodEnd).reduce((sum, record) => sum + record.learningHours, 0),
@@ -403,7 +432,88 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
     const { reviewId } = req.params as { reviewId: string };
     const review = await prisma.leadershipReview.findFirst({ where: { id: reviewId, presenterId: userId }, include: reviewInclude });
     if (!review) return reply.code(404).send({ error: 'Review not found' });
-    return review;
+    return withTrackedLearning(review, userId);
+  });
+
+  app.post('/reviews/:reviewId/entries/:entryId/ai-draft', async (req, reply) => {
+    const { userId } = req.user as { userId: string };
+    const { reviewId, entryId } = req.params as { reviewId: string; entryId: string };
+    const review = await prisma.leadershipReview.findFirst({
+      where: { id: reviewId, presenterId: userId },
+      include: { entries: { where: { id: entryId }, include: { employee: { select: { name: true } } } } },
+    });
+    const entry = review?.entries[0];
+    if (!review || !entry) return reply.code(404).send({ error: 'Leadership review entry not found' });
+
+    const periodStart = review.reportingPeriod;
+    const periodEnd = nextMonth(periodStart);
+    const inPeriod = { gte: periodStart, lt: periodEnd };
+    const [activities, meetings, learningRecords, plans] = await Promise.all([
+      prisma.activityLog.findMany({
+        where: { userId: entry.employeeId, createdAt: inPeriod, action: { in: Object.keys(activityLabel) } },
+        select: { createdAt: true, action: true, entityName: true, projectName: true },
+        orderBy: { createdAt: 'asc' }, take: 100,
+      }),
+      prisma.leadershipOneOnOne.findMany({
+        where: { leadId: userId, reportId: entry.employeeId, meetingDate: inPeriod },
+        select: { meetingDate: true, wins: true, discussionPoints: true, challenges: true, managerFeedback: true, presentationSummary: true },
+        orderBy: { meetingDate: 'asc' }, take: 10,
+      }),
+      prisma.leadershipLearningRecord.findMany({
+        where: {
+          createdById: userId, employeeId: entry.employeeId,
+          OR: [
+            { createdAt: inPeriod }, { updatedAt: inPeriod }, { startDate: inPeriod },
+            { targetCompletionDate: inPeriod }, { completionDate: inPeriod },
+          ],
+        },
+        select: { title: true, type: true, provider: true, skillArea: true, status: true, startDate: true, targetCompletionDate: true, completionDate: true, learningHours: true },
+        orderBy: { updatedAt: 'desc' }, take: 50,
+      }),
+      prisma.testPlan.findMany({
+        where: { createdById: entry.employeeId, OR: [{ createdAt: inPeriod }, { updatedAt: inPeriod }] },
+        select: { name: true, milestone: true, status: true, endsAt: true, project: { select: { name: true } } },
+        orderBy: { updatedAt: 'desc' }, take: 30,
+      }),
+    ]);
+    const periodLastDay = new Date(periodEnd);
+    periodLastDay.setUTCDate(periodLastDay.getUTCDate() - 1);
+
+    try {
+      const draft = await draftLeadershipEntry({
+        reportingPeriod: { from: periodStart.toISOString().slice(0, 10), to: periodLastDay.toISOString().slice(0, 10) },
+        employee: { name: entry.employee.name, jobTitle: entry.jobTitle, teamUnit: entry.teamUnit },
+        activities: activities.map(activity => ({
+          date: activity.createdAt.toISOString(),
+          action: activityLabel[activity.action] ?? activity.action,
+          item: activity.entityName,
+          project: activity.projectName,
+        })),
+        oneOnOnes: meetings.map(meeting => ({
+          date: meeting.meetingDate.toISOString().slice(0, 10),
+          wins: stringList(meeting.wins),
+          discussionPoints: stringList(meeting.discussionPoints),
+          challenges: stringList(meeting.challenges),
+          managerFeedback: stringList(meeting.managerFeedback),
+          presentationSummary: meeting.presentationSummary,
+        })),
+        learningTracker: learningRecords.map(record => ({
+          title: record.title, type: record.type, provider: record.provider, skillArea: record.skillArea,
+          status: record.status, startDate: record.startDate?.toISOString().slice(0, 10),
+          targetCompletionDate: record.targetCompletionDate?.toISOString().slice(0, 10),
+          completionDate: record.completionDate?.toISOString().slice(0, 10), learningHours: record.learningHours,
+        })),
+        plans: plans.map(plan => ({
+          name: plan.name, project: plan.project.name, milestone: plan.milestone,
+          status: plan.status, endDate: plan.endsAt?.toISOString().slice(0, 10),
+        })),
+      }, userId);
+      return { draft, reportingPeriod: { from: periodStart, to: periodLastDay } };
+    } catch (error) {
+      req.log.error({ err: error, reviewId, entryId }, 'Leadership AI draft failed');
+      const message = error instanceof Error ? error.message : 'AI drafting failed';
+      return reply.code(message.startsWith('OpenAI is not configured') ? 503 : 502).send({ error: message });
+    }
   });
 
   app.get('/reviews/:reviewId/export/pptx', async (req, reply) => {
@@ -411,14 +521,17 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
     const { reviewId } = req.params as { reviewId: string };
     const review = await prisma.leadershipReview.findFirst({ where: { id: reviewId, presenterId: userId }, include: reviewInclude });
     if (!review) return reply.code(404).send({ error: 'Review not found' });
-    const oneOnOneCount = await prisma.leadershipOneOnOne.count({
+    const [oneOnOneCount, reviewWithLearning] = await Promise.all([
+      prisma.leadershipOneOnOne.count({
       where: {
         leadId: userId,
         reportId: { in: review.entries.map(entry => entry.employeeId) },
         meetingDate: { gte: review.reportingPeriod, lt: nextMonth(review.reportingPeriod) },
       },
-    });
-    const buffer = await buildLeadershipDeck({ ...review, oneOnOneCount });
+      }),
+      withTrackedLearning(review, userId),
+    ]);
+    const buffer = await buildLeadershipDeck({ ...reviewWithLearning, oneOnOneCount });
     const period = review.reportingPeriod.toISOString().slice(0, 7);
     const safeUnit = review.unitName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
     reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
