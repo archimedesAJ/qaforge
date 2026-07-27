@@ -117,9 +117,14 @@ function nextMonth(date: Date) {
   return new Date(Date.UTC(year, targetMonth, Math.min(date.getUTCDate(), lastDay)));
 }
 
-async function unitSnapshotContent(periodStart: Date, periodEnd: Date): Promise<{ highlights: string[]; focus: string[] }> {
+async function unitSnapshotContent(
+  periodStart: Date,
+  periodEnd: Date,
+  leadId?: string,
+  employeeIds: string[] = [],
+): Promise<{ highlights: string[]; focus: string[]; workingFeedback: string[]; challengesSupport: string[] }> {
   const period = { gte: periodStart, lt: periodEnd };
-  const [testCasesCreated, totalTestCases, defectsIdentified, defectsResolved, defectsFromRuns, criticalProductionDefects, resolvedRecords, resultGroups, priorityDefects, activePlans, activeProjectRows] = await Promise.all([
+  const [testCasesCreated, totalTestCases, defectsIdentified, defectsResolved, defectsFromRuns, criticalProductionDefects, resolvedRecords, resultGroups, priorityDefects, activePlans, activeProjectRows, meetings] = await Promise.all([
     prisma.testCase.count({ where: { createdAt: period, archived: false } }),
     prisma.testCase.count({ where: { archived: false } }),
     prisma.defect.count({ where: { createdAt: period } }),
@@ -145,6 +150,14 @@ async function unitSnapshotContent(periodStart: Date, periodEnd: Date): Promise<
       where: { createdAt: period, projectId: { not: null } },
       select: { projectId: true }, distinct: ['projectId'],
     }),
+    leadId && employeeIds.length > 0 ? prisma.leadershipOneOnOne.findMany({
+      where: { leadId, reportId: { in: employeeIds }, meetingDate: period },
+      select: {
+        wins: true, managerFeedback: true, challenges: true,
+        report: { select: { name: true } },
+      },
+      orderBy: { meetingDate: 'desc' },
+    }) : Promise.resolve([]),
   ]);
   const activeProjectIds = activeProjectRows.flatMap(row => row.projectId ? [row.projectId] : []);
   const staleCases = activeProjectIds.length > 0
@@ -164,15 +177,27 @@ async function unitSnapshotContent(periodStart: Date, periodEnd: Date): Promise<
     ...(resolutionHours !== null && resolutionHours <= 24 ? [`${resolutionHours}h average defect resolution`] : []),
     ...(criticalProductionDefects === 0 ? ['zero critical production escapes'] : []),
   ];
-  const focus = [
+  const kpiShortfalls = [
     ...(criticalProductionDefects > 0 ? [`Prevent recurrence and close corrective actions for ${criticalProductionDefects} critical production escape${criticalProductionDefects === 1 ? '' : 's'}`] : []),
     ...(passRate !== null && passRate < 90 ? [`Raise regression pass rate from ${passRate}% to the 90% target`] : []),
     ...(detectionRate !== null && detectionRate < 85 ? [`Improve defect detection rate from ${detectionRate}% to at least 85%`] : []),
     ...(resolutionHours !== null && resolutionHours > 24 ? [`Reduce average defect resolution from ${resolutionHours} hours to 24 hours or less`] : []),
     ...(staleCases > 0 ? [`Review and update ${staleCases} stale test case${staleCases === 1 ? '' : 's'} across active projects`] : []),
     ...(priorityDefects > 0 ? [`Resolve ${priorityDefects} open critical/high-severity defect${priorityDefects === 1 ? '' : 's'}`] : []),
+  ];
+  const focus = [
+    ...kpiShortfalls,
     ...activePlans.map(plan => `Deliver ${plan.name}${plan.milestone ? ` — ${plan.milestone}` : ''} (${plan.project.name})`),
   ];
+  const noChallenge = /\b(no|none|nothing|not any)\b.*\b(issue|issues|challenge|challenges|blocker|blockers|concern|concerns)\b/i;
+  const positiveFeedback = /\b(strong|excellent|good|great|consistent|dedicated|ownership|attention to detail|improved|successful|successfully|commendable|reliable|quality)\b/i;
+  const meetingWins = meetings.flatMap(meeting => stringList(meeting.wins).map(item => `${meeting.report.name}: ${item}`));
+  const recognisedFeedback = meetings.flatMap(meeting => stringList(meeting.managerFeedback)
+    .filter(item => positiveFeedback.test(item))
+    .map(item => `${meeting.report.name}: ${item}`));
+  const recordedChallenges = meetings.flatMap(meeting => stringList(meeting.challenges)
+    .filter(item => !noChallenge.test(item))
+    .map(item => `${meeting.report.name}: ${item}`));
   return {
     highlights: [
       `${testCasesCreated} test case${testCasesCreated === 1 ? '' : 's'} created this period, making the overall total ${totalTestCases}`,
@@ -180,6 +205,12 @@ async function unitSnapshotContent(periodStart: Date, periodEnd: Date): Promise<
       ...(positiveKpis.length ? [`Positive KPIs: ${positiveKpis.join(' · ')}`] : []),
     ],
     focus,
+    workingFeedback: uniqueBullets([
+      ...(positiveKpis.length ? [`Positive KPIs: ${positiveKpis.join(' · ')}`] : []),
+      ...meetingWins,
+      ...recognisedFeedback,
+    ]),
+    challengesSupport: uniqueBullets([...recordedChallenges, ...kpiShortfalls]),
   };
 }
 
@@ -539,12 +570,14 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
     if (!review) return reply.code(404).send({ error: 'Review not found' });
     const [reviewWithLearning, snapshotContent] = await Promise.all([
       withTrackedLearning(review, userId),
-      unitSnapshotContent(review.reportingPeriod, nextMonth(review.reportingPeriod)),
+      unitSnapshotContent(review.reportingPeriod, nextMonth(review.reportingPeriod), userId, review.entries.map(entry => entry.employeeId)),
     ]);
     return {
       ...reviewWithLearning,
       unitHighlights: snapshotContent.highlights,
       nextPeriodFocus: snapshotContent.focus,
+      workingFeedback: snapshotContent.workingFeedback,
+      challengesSupport: snapshotContent.challengesSupport,
     };
   });
 
@@ -648,12 +681,14 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
       },
       }),
       withTrackedLearning(review, userId),
-      unitSnapshotContent(review.reportingPeriod, nextMonth(review.reportingPeriod)),
+      unitSnapshotContent(review.reportingPeriod, nextMonth(review.reportingPeriod), userId, review.entries.map(entry => entry.employeeId)),
     ]);
     const buffer = await buildLeadershipDeck({
       ...reviewWithLearning,
       unitHighlights: snapshotContent.highlights,
       nextPeriodFocus: snapshotContent.focus,
+      workingFeedback: snapshotContent.workingFeedback,
+      challengesSupport: snapshotContent.challengesSupport,
       oneOnOneCount,
     });
     const period = review.reportingPeriod.toISOString().slice(0, 7);
