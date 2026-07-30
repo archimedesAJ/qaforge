@@ -1356,8 +1356,8 @@ function buildKpiRows(d: KpiData): KpiRowDef[] {
   return [
     {
       key: 'execRate',
-      label: 'Test execution rate — planned vs completed (%)',
-      description: 'Share of test cases executed within projects that had reporting activity this period. Projects shown under “No activity” in Weekly Summary are excluded.',
+      label: 'Planned test execution completion (%)',
+      description: 'Share of distinct non-archived test cases assigned to runs started this period that received an execution result during the same period. Cases not included in those runs are excluded.',
       target: '100%',
       getValue: (p) => p.execRate,
       format: (v) => `${v}%`,

@@ -789,8 +789,19 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         ...runsStarted, ...runsClosed, ...casesCreated, ...defectsFiled, ...defectsResolved, ...plansCreated,
       ].map(group => group.projectId))];
 
+      // A case is planned for this period when it is assigned to a run that
+      // started in the period. Grouping prevents the same case being counted
+      // more than once when it appears in multiple runs.
+      const plannedCaseGroups = await prisma.runCase.groupBy({
+        by: ['testCaseId'],
+        where: {
+          run: { startedAt: { gte, lte } },
+          testCase: { archived: false },
+        },
+      });
+      const plannedCaseIds = plannedCaseGroups.map(group => group.testCaseId);
+
       const [
-        totalCases,
         staleCases,
         executedGroups,
         defectsFromRuns,
@@ -799,14 +810,15 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         resolvedDefects,
         runResultGroups,
       ] = await Promise.all([
-        prisma.testCase.count({ where: { archived: false, projectId: { in: activeProjectIds } } }),
         prisma.coverageSnapshot.count({ where: { state: 'stale', projectId: { in: activeProjectIds } } }),
         prisma.runResult.groupBy({
           by: ['testCaseId'],
           where: {
             executedAt: { gte, lte },
-            run: { projectId: { in: activeProjectIds } },
-            testCase: { archived: false, projectId: { in: activeProjectIds } },
+            // Only results from runs planned in this period count as completed
+            // against this period's planned scope.
+            run: { startedAt: { gte, lte } },
+            testCaseId: { in: plannedCaseIds },
           },
         }),
         prisma.defect.count({ where: { createdAt: { gte, lte }, runResultId: { not: null } } }),
@@ -823,7 +835,9 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         }),
       ]);
 
-      const execRate = totalCases > 0 ? Math.round((executedGroups.length / totalCases) * 100) : null;
+      const execRate = plannedCaseGroups.length > 0
+        ? Math.round((executedGroups.length / plannedCaseGroups.length) * 100)
+        : null;
       const defectDetectionRate = totalDefectsFiled > 0
         ? Math.round((defectsFromRuns / totalDefectsFiled) * 100) : null;
       const avgResolutionHours = resolvedDefects.length > 0
