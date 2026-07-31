@@ -334,6 +334,49 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
     return updated;
   });
 
+  // DELETE /projects/:projectId/runs/:runId — delete an accidental, unexecuted open run
+  app.delete('/:projectId/runs/:runId', { preHandler: requireRole('editor') }, async (req, reply) => {
+    const { projectId, runId } = req.params as { projectId: string; runId: string };
+    const { isApiKey, isSystemAdmin } = req as { isApiKey?: boolean; isSystemAdmin?: boolean };
+
+    // API keys are intended for result ingestion, not destructive UI actions.
+    if (isApiKey) return reply.code(403).send({ error: 'API keys cannot delete runs' });
+
+    const { userId } = req.user as { userId: string };
+    const run = await prisma.testRun.findFirst({
+      where: { id: runId, projectId },
+      select: { id: true, name: true, status: true, triggeredBy: true },
+    });
+    if (!run) return reply.code(404).send({ error: 'Run not found' });
+    if (run.status !== 'open') {
+      return reply.code(409).send({ error: 'Closed runs cannot be deleted' });
+    }
+    if (!isSystemAdmin && run.triggeredBy !== userId) {
+      return reply.code(403).send({ error: 'Only the editor who created this run can delete it' });
+    }
+
+    const recordedResult = await prisma.runResult.findFirst({
+      where: { runId },
+      select: { id: true },
+    });
+    if (recordedResult) {
+      return reply.code(409).send({ error: 'Runs with recorded results cannot be deleted' });
+    }
+
+    await prisma.testRun.delete({ where: { id: runId } });
+    logActivity({
+      userId,
+      isSystemAdmin,
+      projectId,
+      action: 'run_deleted',
+      entityType: 'run',
+      entityId: runId,
+      entityName: run.name,
+    });
+
+    return reply.code(204).send();
+  });
+
   // POST /projects/:projectId/runs/:runId/cases — add active project cases to an open run
   app.post('/:projectId/runs/:runId/cases', { preHandler: requireRole('editor') }, async (req, reply) => {
     const { projectId, runId } = req.params as { projectId: string; runId: string };

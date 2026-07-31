@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '../components/shared/AppLayout';
-import { Button, Modal, Input, Select, Alert, EmptyState, Spinner, StatCard } from '../components/shared/ui';
+import { Button, Modal, Input, Select, Alert, EmptyState, Spinner, StatCard, ConfirmDialog } from '../components/shared/ui';
 import { SuiteTree } from '../components/editor/SuiteTree';
 import { ManualRunner } from '../components/runner/ManualRunner';
 import { ExploratoryRunner } from '../components/runner/ExploratoryRunner';
@@ -13,6 +13,7 @@ import { PerfIngest } from '../components/runner/PerfIngest';
 import { ExploratoryRunWorkspace } from '../components/runner/ExploratoryRunWorkspace';
 import { api } from '../lib/api';
 import { useProjectRole } from '../hooks/useProjectRole';
+import { useAuthStore } from '../store/auth';
 import type { TestRun, TestCase, TestType } from '@qaforge/types';
 
 type View = 'list' | 'create' | 'create-exploratory' | 'select-cases' | 'execute' | 'explore' | 'results' | 'run' | 'junit-ingest' | 'perf-ingest';
@@ -71,6 +72,8 @@ export function RunsPage() {
   const [showAddCases, setShowAddCases] = useState(false);
   const [additionalCaseIds, setAdditionalCaseIds] = useState<Set<string>>(new Set());
   const [runUpdateError, setRunUpdateError] = useState('');
+  const [confirmDeleteRun, setConfirmDeleteRun] = useState<TestRun | null>(null);
+  const [deleteRunError, setDeleteRunError] = useState('');
 
   // Inline note state (blocked / skipped / fail reason)
   const [noteInputCase, setNoteInputCase] = useState<string | null>(null);
@@ -82,6 +85,7 @@ export function RunsPage() {
   const [editPreconditions, setEditPreconditions] = useState('');
   const [editSteps, setEditSteps] = useState<Array<{ action: string; expected: string }>>([]);
 
+  const user = useAuthStore(state => state.user);
   const { isEditor, canExecute } = useProjectRole(projectId);
 
   // ── Queries ──────────────────────────────────────────────────
@@ -188,6 +192,19 @@ export function RunsPage() {
       qc.invalidateQueries({ queryKey: ['run-cases', pendingRun?.id] });
     },
     onError: (err: Error) => setRunUpdateError(err.message),
+  });
+
+  const deleteRun = useMutation({
+    mutationFn: (runId: string) => api.delete(`projects/${projectId}/runs/${runId}`),
+    onSuccess: () => {
+      setConfirmDeleteRun(null);
+      setDeleteRunError('');
+      qc.invalidateQueries({ queryKey: ['runs', projectId] });
+    },
+    onError: (err: Error) => {
+      setConfirmDeleteRun(null);
+      setDeleteRunError(err.message);
+    },
   });
 
   const runs     = runsData?.runs ?? [];
@@ -1106,6 +1123,7 @@ export function RunsPage() {
 
         {/* Runs table */}
         <div className="card">
+          {deleteRunError && <div style={{ padding: '16px 16px 0' }}><Alert type="error">{deleteRunError}</Alert></div>}
           {loadingRuns && <div style={{ padding: 32 }}><Spinner size="lg" /></div>}
 
           {!loadingRuns && runs.length === 0 && (
@@ -1151,6 +1169,7 @@ export function RunsPage() {
                       {new Date(run.startedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                     </td>
                     <td>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                       {run.status === 'open' && canExecute && (
                         <Button
                           variant="primary" size="sm"
@@ -1169,6 +1188,16 @@ export function RunsPage() {
                           View results
                         </Button>
                       )}
+                      {run.status === 'open' && isEditor && (user?.systemAdmin || run.triggeredBy === user?.id) && (
+                        <Button
+                          variant="danger" size="sm"
+                          onClick={() => { setDeleteRunError(''); setConfirmDeleteRun(run); }}
+                          style={{ fontSize: '0.8125rem' }}
+                        >
+                          Delete
+                        </Button>
+                      )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1177,6 +1206,15 @@ export function RunsPage() {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={!!confirmDeleteRun}
+        title="Delete run"
+        message={`Delete “${confirmDeleteRun?.name ?? 'this run'}”? Only open runs with no recorded results can be deleted. This cannot be undone.`}
+        confirmLabel="Delete"
+        onConfirm={() => { if (confirmDeleteRun) deleteRun.mutate(confirmDeleteRun.id); }}
+        onCancel={() => setConfirmDeleteRun(null)}
+      />
 
       {/* Create run modal */}
       <Modal
