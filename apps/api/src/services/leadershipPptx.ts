@@ -126,12 +126,16 @@ export async function buildLeadershipDeck(review: Review): Promise<Buffer> {
   slide.addImage({ path: templateAsset('next-steps.png'), x: 10.5, y: 2.75, w: 1.9, h: 1.9 });
   addLogo(slide, true);
   slide.addText('Discussion & Next Steps', { x: 0.85, y: 1.85, w: 8, h: 0.9, fontFace: 'Arial', fontSize: 38, bold: true, color: 'FFFFFF', margin: 0 });
+  const actionSummaries = asActions(review.decisionsActions).map(action => `${action.action}${action.owner ? ` — ${action.owner}` : ''}${action.dueDate ? ` — ${action.dueDate}` : ''}`);
+  const dependencySummaries = asStrings(review.crossTeamDependencies);
+  const followUpSummaries = asStrings(review.followUps);
   const nextSteps = [
-    ...asActions(review.decisionsActions).map(action => `${action.action}${action.owner ? ` — ${action.owner}` : ''}${action.dueDate ? ` — ${action.dueDate}` : ''}`),
-    ...asStrings(review.crossTeamDependencies), ...asStrings(review.followUps),
+    ...(actionSummaries.length ? [`Agreed actions: ${actionSummaries.slice(0, 2).join('; ')}`] : []),
+    ...(dependencySummaries.length ? [`Dependencies / support: ${dependencySummaries.slice(0, 2).join('; ')}`] : []),
+    ...(followUpSummaries.length ? [`Follow-ups: ${followUpSummaries.slice(0, 2).join('; ')}`] : []),
     ...(review.nextMeetingDate ? [`Next meeting: ${review.nextMeetingDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })}`] : []),
   ];
-  slide.addText(bulletText(nextSteps, 'No next steps recorded', 4, 'E0E0E5'), { x: 0.95, y: 3.1, w: 7.4, h: 2.4, fontFace: 'Arial', fontSize: 17, color: 'E0E0E5', margin: 0.04, paraSpaceAfterPt: 12 });
+  slide.addText(bulletText(nextSteps, 'No next steps recorded', 4, 'E0E0E5'), { x: 0.95, y: 3.1, w: 7.4, h: 2.7, fontFace: 'Arial', fontSize: 14, color: 'E0E0E5', margin: 0.04, paraSpaceAfterPt: 10, breakLine: false });
   slide.addText("It's possible.", { x: 0.95, y: 6.55, w: 2.2, h: 0.25, fontFace: 'Arial', fontSize: 13, italic: true, color: '59A7FF', margin: 0 });
 
   return Buffer.from(await pptx.write({ outputType: 'nodebuffer' }));

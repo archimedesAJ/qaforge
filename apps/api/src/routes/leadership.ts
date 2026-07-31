@@ -106,9 +106,24 @@ const editorDirectReportWhere = {
 
 const uniqueBullets = (items: string[]) => [...new Set(items.map(item => item.trim()).filter(Boolean))].slice(0, 20);
 const stringList = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && !!item.trim()) : [];
+const noChallengeStatement = /\b(no|none|nothing|not any)\b.*\b(issue|issues|challenge|challenges|blocker|blockers|concern|concerns)\b/i;
 const actionList = (value: unknown) => Array.isArray(value) ? value.filter((item): item is { action: string; owner?: string; dueDate?: string; status?: string } =>
   !!item && typeof item === 'object' && typeof (item as { action?: unknown }).action === 'string'
 ) : [];
+
+function derivedWrapUp(review: { crossTeamDependencies: unknown; followUps: unknown; decisionsActions: unknown }, challenges: string[]) {
+  const openActions = actionList(review.decisionsActions).filter(action => action.status !== 'done');
+  return {
+    crossTeamDependencies: uniqueBullets([
+      ...stringList(review.crossTeamDependencies),
+      ...challenges,
+    ]),
+    followUps: uniqueBullets([
+      ...stringList(review.followUps),
+      ...openActions.map(action => `Review progress: ${action.action}`),
+    ]),
+  };
+}
 
 function nextMonth(date: Date) {
   const year = date.getUTCFullYear();
@@ -189,14 +204,13 @@ async function unitSnapshotContent(
     ...kpiShortfalls,
     ...activePlans.map(plan => `Deliver ${plan.name}${plan.milestone ? ` — ${plan.milestone}` : ''} (${plan.project.name})`),
   ];
-  const noChallenge = /\b(no|none|nothing|not any)\b.*\b(issue|issues|challenge|challenges|blocker|blockers|concern|concerns)\b/i;
   const positiveFeedback = /\b(strong|excellent|good|great|consistent|dedicated|ownership|attention to detail|improved|successful|successfully|commendable|reliable|quality)\b/i;
   const meetingWins = meetings.flatMap(meeting => stringList(meeting.wins).map(item => `${meeting.report.name}: ${item}`));
   const recognisedFeedback = meetings.flatMap(meeting => stringList(meeting.managerFeedback)
     .filter(item => positiveFeedback.test(item))
     .map(item => `${meeting.report.name}: ${item}`));
   const recordedChallenges = meetings.flatMap(meeting => stringList(meeting.challenges)
-    .filter(item => !noChallenge.test(item))
+    .filter(item => !noChallengeStatement.test(item))
     .map(item => `${meeting.report.name}: ${item}`));
   return {
     highlights: [
@@ -572,12 +586,20 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
       withTrackedLearning(review, userId),
       unitSnapshotContent(review.reportingPeriod, nextMonth(review.reportingPeriod), userId, review.entries.map(entry => entry.employeeId)),
     ]);
+    const workingFeedback = uniqueBullets([...stringList(reviewWithLearning.workingFeedback), ...snapshotContent.workingFeedback]);
+    const challengesSupport = uniqueBullets([
+      ...stringList(reviewWithLearning.challengesSupport).filter(item => !noChallengeStatement.test(item)),
+      ...snapshotContent.challengesSupport,
+    ]);
+    const wrapUp = derivedWrapUp(reviewWithLearning, challengesSupport);
     return {
       ...reviewWithLearning,
       unitHighlights: snapshotContent.highlights,
       nextPeriodFocus: snapshotContent.focus,
-      workingFeedback: snapshotContent.workingFeedback,
-      challengesSupport: snapshotContent.challengesSupport,
+      workingFeedback,
+      challengesSupport,
+      crossTeamDependencies: wrapUp.crossTeamDependencies,
+      followUps: wrapUp.followUps,
     };
   });
 
@@ -683,12 +705,20 @@ export const leadershipRoutes: FastifyPluginAsync = async app => {
       withTrackedLearning(review, userId),
       unitSnapshotContent(review.reportingPeriod, nextMonth(review.reportingPeriod), userId, review.entries.map(entry => entry.employeeId)),
     ]);
+    const workingFeedback = uniqueBullets([...stringList(reviewWithLearning.workingFeedback), ...snapshotContent.workingFeedback]);
+    const challengesSupport = uniqueBullets([
+      ...stringList(reviewWithLearning.challengesSupport).filter(item => !noChallengeStatement.test(item)),
+      ...snapshotContent.challengesSupport,
+    ]);
+    const wrapUp = derivedWrapUp(reviewWithLearning, challengesSupport);
     const buffer = await buildLeadershipDeck({
       ...reviewWithLearning,
       unitHighlights: snapshotContent.highlights,
       nextPeriodFocus: snapshotContent.focus,
-      workingFeedback: snapshotContent.workingFeedback,
-      challengesSupport: snapshotContent.challengesSupport,
+      workingFeedback,
+      challengesSupport,
+      crossTeamDependencies: wrapUp.crossTeamDependencies,
+      followUps: wrapUp.followUps,
       oneOnOneCount,
     });
     const period = review.reportingPeriod.toISOString().slice(0, 7);
