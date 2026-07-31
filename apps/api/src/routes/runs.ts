@@ -15,6 +15,15 @@ const CreateRunSchema = z.object({
 });
 const RenameRunSchema = z.object({ name: z.string().trim().min(1).max(200) });
 const AddRunCasesSchema = z.object({ caseIds: z.array(z.string().uuid()).min(1).max(500) });
+const CreateRunCaseSchema = z.object({
+  title: z.string().trim().min(1).max(500),
+  type: z.enum(['manual', 'functional', 'ui_auto', 'api', 'perf', 'exploratory']),
+  priority: z.enum(['p0', 'p1', 'p2', 'p3']).default('p2'),
+  suiteId: z.string().uuid().optional(),
+  tags: z.array(z.string()).default([]),
+  steps: z.unknown().optional(),
+  preconditions: z.string().optional(),
+});
 
 const CreateExploratoryRunSchema = z.object({
   name: z.string().min(1).max(200),
@@ -395,6 +404,48 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
       skipDuplicates: true,
     });
     return reply.code(201).send({ added: created.count });
+  });
+
+  // POST /projects/:projectId/runs/:runId/cases/new — create a project case and add it to an open run
+  app.post('/:projectId/runs/:runId/cases/new', { preHandler: requireRole('editor') }, async (req, reply) => {
+    const { projectId, runId } = req.params as { projectId: string; runId: string };
+    const { userId } = req.user as { userId: string };
+    const { isSystemAdmin } = req as { isSystemAdmin?: boolean };
+    const body = CreateRunCaseSchema.parse(req.body);
+
+    const run = await prisma.testRun.findFirst({ where: { id: runId, projectId }, select: { status: true } });
+    if (!run) return reply.code(404).send({ error: 'Run not found' });
+    if (run.status !== 'open') return reply.code(409).send({ error: 'New cases cannot be added to a closed run' });
+
+    const existing = await prisma.testCase.findFirst({
+      where: { projectId, archived: false, title: { equals: body.title, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    if (existing) {
+      return reply.code(409).send({ error: `A test case named "${body.title}" already exists in this project. Add the existing case instead.` });
+    }
+
+    const testCase = await prisma.$transaction(async tx => {
+      const created = await tx.testCase.create({
+        data: {
+          ...body,
+          projectId,
+          createdById: userId,
+          tags: body.tags,
+          steps: body.steps as object | undefined,
+          version: 1,
+        },
+      });
+      const updated = await tx.testCase.update({
+        where: { id: created.id },
+        data: { lineageId: created.id },
+      });
+      await tx.runCase.create({ data: { runId, testCaseId: created.id } });
+      return updated;
+    });
+
+    logActivity({ userId, isSystemAdmin, projectId, action: 'case_created', entityType: 'test_case', entityId: testCase.id, entityName: testCase.title });
+    return reply.code(201).send(testCase);
   });
 
   // GET /projects/:projectId/runs/:runId/results — viewer+

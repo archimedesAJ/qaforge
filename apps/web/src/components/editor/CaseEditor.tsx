@@ -26,12 +26,13 @@ interface CaseEditorProps {
   projectId: string;
   existing?: TestCase | null;
   defaultSuiteId?: string | null;
+  createEndpoint?: string;
   onSaved: (tc: TestCase) => void;
   onCancel: () => void;
 }
 
 export function CaseEditor({
-  projectId, existing, defaultSuiteId, onSaved, onCancel,
+  projectId, existing, defaultSuiteId, createEndpoint, onSaved, onCancel,
 }: CaseEditorProps) {
   const qc = useQueryClient();
   const isEditing = !!existing;
@@ -128,7 +129,7 @@ export function CaseEditor({
     mutationFn: (body: Partial<TestCase>) =>
       isEditing
         ? api.put<TestCase>(`projects/${projectId}/cases/${existing!.id}`, body)
-        : api.post<TestCase>(`projects/${projectId}/cases`, body),
+        : api.post<TestCase>(createEndpoint ?? `projects/${projectId}/cases`, body),
     onSuccess: (tc) => {
       qc.invalidateQueries({ queryKey: ['cases', projectId] });
       onSaved(tc);

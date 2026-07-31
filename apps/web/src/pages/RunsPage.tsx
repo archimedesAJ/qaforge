@@ -11,12 +11,13 @@ import { AutoResultsViewer } from '../components/runner/AutoResultsViewer';
 import { JUnitIngest } from '../components/runner/JUnitIngest';
 import { PerfIngest } from '../components/runner/PerfIngest';
 import { ExploratoryRunWorkspace } from '../components/runner/ExploratoryRunWorkspace';
+import { CaseEditor } from '../components/editor/CaseEditor';
 import { api } from '../lib/api';
 import { useProjectRole } from '../hooks/useProjectRole';
 import { useAuthStore } from '../store/auth';
 import type { TestRun, TestCase, TestType } from '@qaforge/types';
 
-type View = 'list' | 'create' | 'create-exploratory' | 'select-cases' | 'execute' | 'explore' | 'results' | 'run' | 'junit-ingest' | 'perf-ingest';
+type View = 'list' | 'create' | 'create-exploratory' | 'select-cases' | 'create-run-case' | 'execute' | 'explore' | 'results' | 'run' | 'junit-ingest' | 'perf-ingest';
 
 interface RunCase {
   id: number;
@@ -117,7 +118,7 @@ export function RunsPage() {
       if (pickerSuiteId) params.set('suiteId', pickerSuiteId);
       return api.get<{ data: TestCase[] }>(`projects/${projectId}/cases?${params}`);
     },
-    enabled: !!projectId && view === 'select-cases',
+    enabled: !!projectId && (view === 'select-cases' || showAddCases),
   });
 
   // Assigned run cases (shown in execute view)
@@ -1079,6 +1080,13 @@ export function RunsPage() {
 
         <Modal open={showAddCases} onClose={() => setShowAddCases(false)} title="Add test cases to run" maxWidth={700} footer={<><Button variant="secondary" onClick={() => setShowAddCases(false)}>Cancel</Button><Button variant="primary" loading={addRunCases.isPending} disabled={additionalCaseIds.size === 0} onClick={() => addRunCases.mutate()}>Add {additionalCaseIds.size || ''} case{additionalCaseIds.size === 1 ? '' : 's'}</Button></>}>
           {runUpdateError && <div style={{ marginBottom: 12 }}><Alert type="error">{runUpdateError}</Alert></div>}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid var(--border-color)' }}>
+            <div>
+              <div style={{ fontWeight: 600, color: 'var(--gray-900)' }}>Add an existing project case</div>
+              <div style={{ marginTop: 2, fontSize: '0.8125rem', color: 'var(--gray-500)' }}>Or create a new case and attach it to this run automatically.</div>
+            </div>
+            <Button variant="secondary" size="sm" onClick={() => { setShowAddCases(false); setView('create-run-case'); }}>+ Create new case</Button>
+          </div>
           <Input label="Search project cases" value={caseSearch} onChange={event => setCaseSearch(event.target.value)} placeholder="Search by title…" />
           {loadingCases ? <div style={{ padding: 24, textAlign: 'center' }}><Spinner /></div> : availableAdditionalCases.length === 0 ? <EmptyState icon="✓" title="No additional cases available" description="All matching active project cases are already assigned to this run." /> : <div style={{ maxHeight: 360, overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 8 }}>
             {availableAdditionalCases.map(testCase => <label key={testCase.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: '1px solid var(--border-color)', cursor: 'pointer' }}>
@@ -1087,6 +1095,28 @@ export function RunsPage() {
             </label>)}
           </div>}
         </Modal>
+      </AppLayout>
+    );
+  }
+
+  if (view === 'create-run-case' && pendingRun && projectId) {
+    return (
+      <AppLayout title={`Add a new test case to ${pendingRun.name}`}>
+        <div style={{ maxWidth: 1000, height: 'calc(100vh - var(--topbar-height) - 56px)', margin: '0 auto', background: 'var(--surface-base)', border: '1px solid var(--border-color)', borderRadius: 'var(--border-radius-lg)', overflow: 'hidden' }}>
+          <CaseEditor
+            projectId={projectId}
+            createEndpoint={`projects/${projectId}/runs/${pendingRun.id}/cases/new`}
+            onSaved={() => {
+              qc.invalidateQueries({ queryKey: ['cases', projectId] });
+              qc.invalidateQueries({ queryKey: ['run-cases', pendingRun.id] });
+              setPickerSuiteId(null);
+              setCaseSearch('');
+              setStatusFilter('all');
+              setView('execute');
+            }}
+            onCancel={() => setView('execute')}
+          />
+        </div>
       </AppLayout>
     );
   }
