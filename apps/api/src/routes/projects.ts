@@ -440,7 +440,7 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
       prisma.defect.count({
         where: {
           status: { in: ['resolved', 'closed'] },
-          ...(isDateBounded && { updatedAt: { gte: sinceDate!, lte: untilDate! } }),
+          ...(isDateBounded && { resolvedAt: { gte: sinceDate!, lte: untilDate! } }),
         },
       }),
     ]);
@@ -713,7 +713,7 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         prisma.testRun.groupBy({ by: ['projectId'], where: { endedAt: { gte: sinceDate, lte: untilDate }, status: 'closed' }, _count: { id: true } }),
         prisma.testCase.groupBy({ by: ['projectId'], where: { createdAt: { gte: sinceDate, lte: untilDate }, archived: false }, _count: { id: true } }),
         prisma.defect.groupBy({ by: ['projectId'], where: { createdAt: { gte: sinceDate, lte: untilDate } }, _count: { id: true } }),
-        prisma.defect.groupBy({ by: ['projectId'], where: { updatedAt: { gte: sinceDate, lte: untilDate }, status: { in: ['resolved', 'closed'] } }, _count: { id: true } }),
+        prisma.defect.groupBy({ by: ['projectId'], where: { resolvedAt: { gte: sinceDate, lte: untilDate }, status: { in: ['resolved', 'closed'] } }, _count: { id: true } }),
         prisma.testPlan.groupBy({ by: ['projectId'], where: { createdAt: { gte: sinceDate, lte: untilDate } }, _count: { id: true } }),
       ]);
 
@@ -782,7 +782,7 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         prisma.testRun.groupBy({ by: ['projectId'], where: { endedAt: { gte, lte }, status: 'closed' } }),
         prisma.testCase.groupBy({ by: ['projectId'], where: { createdAt: { gte, lte }, archived: false } }),
         prisma.defect.groupBy({ by: ['projectId'], where: { createdAt: { gte, lte } } }),
-        prisma.defect.groupBy({ by: ['projectId'], where: { updatedAt: { gte, lte }, status: { in: ['resolved', 'closed'] } } }),
+        prisma.defect.groupBy({ by: ['projectId'], where: { resolvedAt: { gte, lte }, status: { in: ['resolved', 'closed'] } } }),
         prisma.testPlan.groupBy({ by: ['projectId'], where: { createdAt: { gte, lte } } }),
       ]);
       const activeProjectIds = [...new Set([
@@ -825,8 +825,8 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         prisma.defect.count({ where: { createdAt: { gte, lte } } }),
         prisma.defect.count({ where: { createdAt: { gte, lte }, severity: 'critical', detectedEnvironment: 'production' } }),
         prisma.defect.findMany({
-          where: { updatedAt: { gte, lte }, status: { in: ['resolved', 'closed'] } },
-          select: { createdAt: true, updatedAt: true },
+          where: { resolvedAt: { gte, lte }, status: { in: ['resolved', 'closed'] } },
+          select: { createdAt: true, resolvedAt: true },
         }),
         prisma.runResult.groupBy({
           by: ['status'],
@@ -842,7 +842,7 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
         ? Math.round((defectsFromRuns / totalDefectsFiled) * 100) : null;
       const avgResolutionHours = resolvedDefects.length > 0
         ? Math.round(resolvedDefects.reduce((s, d) =>
-            s + (d.updatedAt.getTime() - d.createdAt.getTime()), 0
+            s + ((d.resolvedAt?.getTime() ?? d.createdAt.getTime()) - d.createdAt.getTime()), 0
           ) / resolvedDefects.length / 3_600_000 * 10) / 10
         : null;
       const passCount = runResultGroups.find(g => g.status === 'pass')?._count.id ?? 0;

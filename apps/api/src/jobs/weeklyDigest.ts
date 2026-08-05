@@ -44,7 +44,7 @@ export async function processDigest(): Promise<void> {
           : Promise.resolve([]),
         prisma.testCase.count({ where: { projectId: project.id, archived: false, createdAt: { gte: since } } }),
         prisma.defect.count({ where: { projectId: project.id, createdAt: { gte: since } } }),
-        prisma.defect.count({ where: { projectId: project.id, status: { in: ['resolved', 'closed'] }, updatedAt: { gte: since } } }),
+        prisma.defect.count({ where: { projectId: project.id, status: { in: ['resolved', 'closed'] }, resolvedAt: { gte: since } } }),
         prisma.defect.count({ where: { projectId: project.id, status: { in: ['open', 'in_progress'] } } }),
         prisma.testPlan.findMany({
           where:  { projectId: project.id, status: 'active' },

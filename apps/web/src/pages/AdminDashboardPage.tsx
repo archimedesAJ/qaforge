@@ -1387,7 +1387,7 @@ function buildKpiRows(d: KpiData): KpiRowDef[] {
     {
       key: 'avgResolutionHours',
       label: 'Avg. defect resolution turnaround (hours)',
-      description: 'Average time from a defect being created to being marked resolved/closed, averaged across defects that were resolved or closed this period.',
+      description: 'Average time from defect creation to its first resolution, for defects first resolved this period. Closing or editing a resolved defect does not change the measurement; won’t-fix defects are excluded.',
       target: '≤ 24 hrs',
       getValue: (p) => p.avgResolutionHours,
       format: (v) => `${v}h`,

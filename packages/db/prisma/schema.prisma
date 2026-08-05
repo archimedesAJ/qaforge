@@ -290,6 +290,9 @@ model Defect {
   attachments Json?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+  resolvedAt  DateTime?
+  closedAt    DateTime?
+  wontFixAt   DateTime?
 
   project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
   runResult RunResult? @relation(fields: [runResultId], references: [id])
@@ -297,6 +300,9 @@ model Defect {
   @@index([projectId])
   @@index([runResultId])
   @@index([detectedEnvironment, severity, createdAt])
+  @@index([resolvedAt])
+  @@index([closedAt])
+  @@index([wontFixAt])
 }
 model ActivityLog {
   id          String   @id @default(uuid())

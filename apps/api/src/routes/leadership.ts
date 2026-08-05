@@ -143,12 +143,12 @@ async function unitSnapshotContent(
     prisma.testCase.count({ where: { createdAt: period, archived: false } }),
     prisma.testCase.count({ where: { archived: false } }),
     prisma.defect.count({ where: { createdAt: period } }),
-    prisma.defect.count({ where: { updatedAt: period, status: { in: ['resolved', 'closed'] } } }),
+    prisma.defect.count({ where: { resolvedAt: period, status: { in: ['resolved', 'closed'] } } }),
     prisma.defect.count({ where: { createdAt: period, runResultId: { not: null } } }),
     prisma.defect.count({ where: { createdAt: period, severity: 'critical', detectedEnvironment: 'production' } }),
     prisma.defect.findMany({
-      where: { updatedAt: period, status: { in: ['resolved', 'closed'] } },
-      select: { createdAt: true, updatedAt: true },
+      where: { resolvedAt: period, status: { in: ['resolved', 'closed'] } },
+      select: { createdAt: true, resolvedAt: true },
     }),
     prisma.runResult.groupBy({
       by: ['status'], where: { executedAt: period, status: { in: ['pass', 'fail'] } }, _count: { id: true },
@@ -183,7 +183,7 @@ async function unitSnapshotContent(
   const passRate = pass + fail > 0 ? Math.round(pass / (pass + fail) * 100) : null;
   const detectionRate = defectsIdentified > 0 ? Math.round(defectsFromRuns / defectsIdentified * 100) : null;
   const resolutionHours = resolvedRecords.length > 0
-    ? Math.round(resolvedRecords.reduce((sum, defect) => sum + defect.updatedAt.getTime() - defect.createdAt.getTime(), 0)
+    ? Math.round(resolvedRecords.reduce((sum, defect) => sum + (defect.resolvedAt?.getTime() ?? defect.createdAt.getTime()) - defect.createdAt.getTime(), 0)
       / resolvedRecords.length / 3_600_000 * 10) / 10
     : null;
   const positiveKpis = [

@@ -194,10 +194,14 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
       }
 
       try {
+        const importedAt = new Date();
         await prisma.defect.create({
           data: {
             projectId, title,
             tracker, severity, status, detectedEnvironment,
+            ...(status === 'resolved' && { resolvedAt: importedAt }),
+            ...(status === 'closed' && { resolvedAt: importedAt, closedAt: importedAt }),
+            ...(status === 'wont_fix' && { wontFixAt: importedAt }),
             externalRef: row.externalref || row.external_ref || null,
             notes: row.notes || null,
             attachments: [],
@@ -272,6 +276,16 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
     if (!existing) return reply.code(404).send({ error: 'Defect not found' });
     if (existing.projectId !== projectId) return reply.code(403).send({ error: 'Forbidden' });
 
+    const now = new Date();
+    const lifecycleData = body.status === undefined ? {} : {
+      ...(body.status === 'resolved' && existing.resolvedAt === null && { resolvedAt: now }),
+      ...(body.status === 'closed' && {
+        ...(existing.resolvedAt === null && { resolvedAt: now }),
+        ...(existing.closedAt === null && { closedAt: now }),
+      }),
+      ...(body.status === 'wont_fix' && existing.wontFixAt === null && { wontFixAt: now }),
+    };
+
     const updated = await prisma.defect.update({
       where: { id: defectId },
       data: {
@@ -281,6 +295,7 @@ export const defectsRoutes: FastifyPluginAsync = async (app) => {
         ...(body.detectedEnvironment !== undefined && { detectedEnvironment: body.detectedEnvironment }),
         ...(body.externalRef !== undefined && { externalRef: body.externalRef?.trim() || null }),
         ...(body.status      !== undefined && { status:   body.status }),
+        ...lifecycleData,
         ...(body.notes       !== undefined && { notes: body.notes.trim() || null }),
         ...(body.attachments !== undefined && { attachments: body.attachments }),
       },
