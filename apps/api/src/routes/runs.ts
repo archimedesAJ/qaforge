@@ -194,14 +194,25 @@ export const runsRoutes: FastifyPluginAsync = async (app) => {
   });
 
   // GET /projects/:projectId/runs/:runId/cases — viewer+
-  app.get('/:projectId/runs/:runId/cases', { preHandler: requireRole('viewer') }, async (req) => {
-    const { runId } = req.params as { projectId: string; runId: string };
-    const runCases = await prisma.runCase.findMany({
-      where: { runId },
-      include: { testCase: { select: { id: true, seqId: true, title: true, type: true, priority: true, suiteId: true, steps: true, tags: true, preconditions: true } } },
-      orderBy: { id: 'asc' },
-    });
-    return { runCases };
+  app.get('/:projectId/runs/:runId/cases', { preHandler: requireRole('viewer') }, async (req, reply) => {
+    const { projectId, runId } = req.params as { projectId: string; runId: string };
+    const run = await prisma.testRun.findFirst({ where: { id: runId, projectId }, select: { id: true } });
+    if (!run) return reply.code(404).send({ error: 'Run not found' });
+    const [runCases, latestResults] = await Promise.all([
+      prisma.runCase.findMany({
+        where: { runId },
+        include: { testCase: { select: { id: true, seqId: true, title: true, type: true, priority: true, suiteId: true, steps: true, tags: true, preconditions: true } } },
+        orderBy: { id: 'asc' },
+      }),
+      prisma.runResult.findMany({
+        where: { runId },
+        orderBy: { executedAt: 'desc' },
+        distinct: ['testCaseId'],
+        select: { id: true, testCaseId: true, status: true, defects: { select: { id: true } } },
+      }),
+    ]);
+    const resultByCaseId = new Map(latestResults.map(result => [result.testCaseId, result]));
+    return { runCases: runCases.map(runCase => ({ ...runCase, result: resultByCaseId.get(runCase.testCaseId) ?? null })) };
   });
 
   // PUT /projects/:projectId/runs/:runId/cases/:caseId/status — editor+

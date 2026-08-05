@@ -12,6 +12,7 @@ import { JUnitIngest } from '../components/runner/JUnitIngest';
 import { PerfIngest } from '../components/runner/PerfIngest';
 import { ExploratoryRunWorkspace } from '../components/runner/ExploratoryRunWorkspace';
 import { CaseEditor } from '../components/editor/CaseEditor';
+import { FileDefectModal, detectedEnvironmentFromRun } from '../components/runner/FileDefectModal';
 import { api } from '../lib/api';
 import { useProjectRole } from '../hooks/useProjectRole';
 import { useAuthStore } from '../store/auth';
@@ -25,6 +26,7 @@ interface RunCase {
   testCaseId: string;
   status: string;
   note?: string | null;
+  result?: { id: number; status: string; defects: Array<{ id: string }> } | null;
   testCase: { id: string; title: string; type: string; priority: string; suiteId: string | null; steps?: unknown; tags?: unknown; preconditions?: string | null };
 }
 
@@ -75,6 +77,7 @@ export function RunsPage() {
   const [runUpdateError, setRunUpdateError] = useState('');
   const [confirmDeleteRun, setConfirmDeleteRun] = useState<TestRun | null>(null);
   const [deleteRunError, setDeleteRunError] = useState('');
+  const [filingDefectFor, setFilingDefectFor] = useState<RunCase | null>(null);
 
   // Inline note state (blocked / skipped / fail reason)
   const [noteInputCase, setNoteInputCase] = useState<string | null>(null);
@@ -865,6 +868,17 @@ export function RunsPage() {
                         </Button>
                       )}
 
+                      {canExecute && rc.status === 'fail' && rc.result?.status === 'fail' && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setFilingDefectFor(rc)}
+                          style={{ flexShrink: 0, fontSize: '0.8125rem', color: '#dc2626', borderColor: '#fca5a5' }}
+                        >
+                          {rc.result.defects.length > 0 ? '+ Another defect' : '+ File defect'}
+                        </Button>
+                      )}
+
                       {/* Edit button — editors only */}
                       {isEditor && (
                         <button
@@ -1072,6 +1086,19 @@ export function RunsPage() {
             )}
           </div>
         </Modal>
+
+        <FileDefectModal
+          open={!!filingDefectFor}
+          projectId={projectId!}
+          resultId={filingDefectFor?.result?.id ?? null}
+          defaultTitle={filingDefectFor?.testCase.title ?? ''}
+          defaultEnvironment={detectedEnvironmentFromRun(pendingRun.env)}
+          onClose={() => setFilingDefectFor(null)}
+          onFiled={() => {
+            qc.invalidateQueries({ queryKey: ['run-cases', pendingRun.id] });
+            qc.invalidateQueries({ queryKey: ['defects', projectId] });
+          }}
+        />
 
         <Modal open={showRenameRun} onClose={() => setShowRenameRun(false)} title="Rename run" footer={<><Button variant="secondary" onClick={() => setShowRenameRun(false)}>Cancel</Button><Button variant="primary" loading={renameRun.isPending} onClick={() => { if (!renameRunName.trim()) { setRunUpdateError('Run name is required'); return; } renameRun.mutate(); }}>Save name</Button></>}>
           {runUpdateError && <div style={{ marginBottom: 12 }}><Alert type="error">{runUpdateError}</Alert></div>}
