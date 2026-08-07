@@ -754,6 +754,81 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
     return { since: sinceDate, until: untilDate, active, inactive: inactive.map(p => p.name), totals };
   });
 
+  // GET /sysadmin/inactive-projects — projects with no QA activity in a reporting window
+  app.get('/sysadmin/inactive-projects', async (req, reply) => {
+    const caller = req as unknown as { isSystemAdmin?: boolean };
+    if (!caller.isSystemAdmin) return reply.code(403).send({ error: 'System admin access required' });
+
+    const { since, until } = req.query as { since?: string; until?: string };
+    const untilDate = until ? new Date(`${until}T23:59:59.999Z`) : new Date();
+    const sinceDate = since ? new Date(`${since}T00:00:00.000Z`) : new Date(untilDate.getTime() - 7 * 86_400_000);
+    if (Number.isNaN(sinceDate.getTime()) || Number.isNaN(untilDate.getTime()) || sinceDate > untilDate) {
+      return reply.code(400).send({ error: 'Invalid reporting date range' });
+    }
+    if (untilDate.getTime() - sinceDate.getTime() > 366 * 86_400_000) {
+      return reply.code(400).send({ error: 'Reporting period cannot exceed 366 days' });
+    }
+
+    const [projects, runStarts, runClosures, caseCreations, defectCreations, defectResolutions, planCreations] = await Promise.all([
+      prisma.project.findMany({
+        orderBy: { name: 'asc' },
+        select: {
+          id: true, name: true, slug: true, category: true, stage: true, createdAt: true,
+          _count: { select: { cases: true, runs: true, defects: true, plans: true, members: true } },
+        },
+      }),
+      prisma.testRun.groupBy({ by: ['projectId'], _max: { startedAt: true }, where: { startedAt: { lte: untilDate } } }),
+      prisma.testRun.groupBy({ by: ['projectId'], _max: { endedAt: true }, where: { endedAt: { not: null, lte: untilDate }, status: 'closed' } }),
+      prisma.testCase.groupBy({ by: ['projectId'], _max: { createdAt: true }, where: { createdAt: { lte: untilDate }, archived: false } }),
+      prisma.defect.groupBy({ by: ['projectId'], _max: { createdAt: true }, where: { createdAt: { lte: untilDate } } }),
+      prisma.defect.groupBy({ by: ['projectId'], _max: { resolvedAt: true }, where: { resolvedAt: { not: null, lte: untilDate }, status: { in: ['resolved', 'closed'] } } }),
+      prisma.testPlan.groupBy({ by: ['projectId'], _max: { createdAt: true }, where: { createdAt: { lte: untilDate } } }),
+    ]);
+
+    const candidates = new Map<string, Array<{ at: Date; type: string }>>();
+    const add = (projectId: string, at: Date | null, type: string) => {
+      if (!at) return;
+      const list = candidates.get(projectId) ?? [];
+      list.push({ at, type });
+      candidates.set(projectId, list);
+    };
+    runStarts.forEach(row => add(row.projectId, row._max.startedAt, 'run_started'));
+    runClosures.forEach(row => add(row.projectId, row._max.endedAt, 'run_closed'));
+    caseCreations.forEach(row => add(row.projectId, row._max.createdAt, 'test_case_created'));
+    defectCreations.forEach(row => add(row.projectId, row._max.createdAt, 'defect_filed'));
+    defectResolutions.forEach(row => add(row.projectId, row._max.resolvedAt, 'defect_resolved'));
+    planCreations.forEach(row => add(row.projectId, row._max.createdAt, 'test_plan_created'));
+
+    const rows = projects.map(project => {
+      const latest = (candidates.get(project.id) ?? []).sort((a, b) => b.at.getTime() - a.at.getTime())[0];
+      const lastActivityAt = latest?.at ?? project.createdAt;
+      const active = lastActivityAt >= sinceDate && lastActivityAt <= untilDate;
+      return {
+        id: project.id,
+        name: project.name,
+        slug: project.slug,
+        category: project.category,
+        stage: project.stage,
+        createdAt: project.createdAt,
+        lastActivityAt,
+        lastActivityType: latest?.type ?? 'project_created',
+        daysInactive: Math.max(0, Math.floor((untilDate.getTime() - lastActivityAt.getTime()) / 86_400_000)),
+        counts: project._count,
+        active,
+      };
+    });
+
+    const inactive = rows.filter(row => !row.active).sort((a, b) => b.daysInactive - a.daysInactive || a.name.localeCompare(b.name));
+    return {
+      since: sinceDate,
+      until: untilDate,
+      totalProjects: rows.length,
+      activeProjects: rows.length - inactive.length,
+      inactiveProjects: inactive.length,
+      inactive,
+    };
+  });
+
   // GET /sysadmin/kpi-performance — 7 KPIs for current period + 3 prior same-length periods
   app.get('/sysadmin/kpi-performance', async (req, reply) => {
     const caller = req as unknown as { isSystemAdmin?: boolean };

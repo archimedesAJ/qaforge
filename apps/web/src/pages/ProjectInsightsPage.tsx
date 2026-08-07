@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -48,7 +48,11 @@ function downloadCsv(filename: string, rows: Array<Record<string, unknown>>) {
 
 export function ProjectInsightsPage() {
   const now = new Date();
+  const reportRef = useRef<HTMLDivElement>(null);
   const [projectId, setProjectId] = useState('');
+  const [projectSearch, setProjectSearch] = useState('');
+  const [tableSearch, setTableSearch] = useState('');
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [from, setFrom] = useState(isoDate(new Date(now.getTime() - 29 * 86_400_000)));
   const [to, setTo] = useState(isoDate(now));
   const [environment, setEnvironment] = useState('');
@@ -63,16 +67,62 @@ export function ProjectInsightsPage() {
     enabled: Boolean(projectId && from && to),
   });
   const report = reportQuery.data;
-  const defects = useMemo(() => report?.defects.filter(defect => (!severity || defect.severity === severity) && (!status || defect.status === status)) ?? [], [report, severity, status]);
+  const projects = projectsQuery.data?.projects ?? [];
+  const filteredProjects = useMemo(() => {
+    const query = projectSearch.trim().toLowerCase();
+    return projects.filter(project => project.id === projectId || !query || project.name.toLowerCase().includes(query));
+  }, [projects, projectId, projectSearch]);
+  const search = tableSearch.trim().toLowerCase();
+  const runs = useMemo(() => report?.runs.filter(run => !search || [run.name, run.env, run.status, run.owner?.name ?? ''].some(value => value.toLowerCase().includes(search))) ?? [], [report, search]);
+  const defects = useMemo(() => report?.defects.filter(defect => {
+    const matchesFilters = (!severity || defect.severity === severity) && (!status || defect.status === status);
+    const matchesSearch = !search || [defect.title, defect.severity, defect.status, defect.detectedEnvironment, defect.runResult?.run.name ?? '', defect.runResult?.testCase.title ?? ''].some(value => value.toLowerCase().includes(search));
+    return matchesFilters && matchesSearch;
+  }) ?? [], [report, severity, status, search]);
+
+  async function exportPdf() {
+    if (!reportRef.current || !report) return;
+    setExportingPdf(true);
+    try {
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')]);
+      const canvas = await html2canvas(reportRef.current, {
+        scale: 1.5,
+        useCORS: true,
+        backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--surface-page').trim() || '#ffffff',
+      });
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const imageHeight = canvas.height * pageWidth / canvas.width;
+      const image = canvas.toDataURL('image/png');
+      let remaining = imageHeight;
+      let offset = 0;
+      pdf.addImage(image, 'PNG', 0, offset, pageWidth, imageHeight);
+      remaining -= pageHeight;
+      while (remaining > 0) {
+        offset -= pageHeight;
+        pdf.addPage();
+        pdf.addImage(image, 'PNG', 0, offset, pageWidth, imageHeight);
+        remaining -= pageHeight;
+      }
+      const filename = `${report.project.name}-${from}-${to}-insights`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      pdf.save(`${filename}.pdf`);
+    } finally {
+      setExportingPdf(false);
+    }
+  }
 
   return <AppLayout title="Project insights">
     <div style={{ maxWidth: 1500, margin: '0 auto' }}>
       <div className="page-header">
         <div><h1 className="page-title">Project Insights</h1><p className="page-subtitle">Detailed execution, quality, coverage and traceability reporting for one project.</p></div>
+        <Button variant="secondary" onClick={exportPdf} loading={exportingPdf} disabled={!report}>{exportingPdf ? 'Generating PDF…' : '↓ Export PDF'}</Button>
       </div>
 
+      <div ref={reportRef}>
       <section style={{ ...panel, display: 'flex', gap: 12, alignItems: 'end', flexWrap: 'wrap', marginBottom: 18 }}>
-        <label style={{ display: 'grid', gap: 5, flex: '1 1 280px' }}><span className="label">Project</span><select style={input} value={projectId} onChange={e => { setProjectId(e.target.value); setEnvironment(''); }}><option value="">Select project</option>{projectsQuery.data?.projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
+        <label style={{ display: 'grid', gap: 5, flex: '1 1 200px' }}><span className="label">Search projects</span><input style={input} type="search" placeholder="Type a project name…" value={projectSearch} onChange={e => setProjectSearch(e.target.value)} /></label>
+        <label style={{ display: 'grid', gap: 5, flex: '2 1 280px' }}><span className="label">Project</span><select style={input} value={projectId} onChange={e => { setProjectId(e.target.value); setEnvironment(''); }}><option value="">Select project</option>{filteredProjects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
         <label style={{ display: 'grid', gap: 5 }}><span className="label">From</span><input style={input} type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} /></label>
         <label style={{ display: 'grid', gap: 5 }}><span className="label">To</span><input style={input} type="date" value={to} min={from} max={isoDate(now)} onChange={e => setTo(e.target.value)} /></label>
         <label style={{ display: 'grid', gap: 5, minWidth: 180 }}><span className="label">Environment</span><select style={input} value={environment} onChange={e => setEnvironment(e.target.value)}><option value="">All environments</option>{report?.environments.map(env => <option key={env}>{env}</option>)}</select></label>
@@ -103,8 +153,8 @@ export function ProjectInsightsPage() {
         </div>
 
         <section style={{ ...panel, marginBottom: 18, overflowX: 'auto' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}><h3>Test runs</h3><Button size="sm" onClick={() => downloadCsv(`${report.project.name}-runs.csv`, report.runs.map(run => ({ Name: run.name, Environment: run.env, Status: run.status, Owner: run.owner?.name ?? '', Started: run.startedAt, Assigned: run.assignedCases, Results: run.resultCount, Passed: run.counts.pass ?? 0, Failed: run.counts.fail ?? 0 })))}>Export runs CSV</Button></div>
-          <table className="table"><thead><tr><th>Run</th><th>Environment</th><th>Status</th><th>Owner</th><th>Started</th><th>Assigned</th><th>Pass</th><th>Fail</th></tr></thead><tbody>{report.runs.map(run => <tr key={run.id}><td><Link to={`/projects/${report.project.id}/runs`}>{run.name}</Link></td><td>{run.env}</td><td>{label(run.status)}</td><td>{run.owner?.name ?? '—'}</td><td>{displayDate(run.startedAt)}</td><td>{run.assignedCases}</td><td>{run.counts.pass ?? 0}</td><td>{run.counts.fail ?? 0}</td></tr>)}</tbody></table>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'end', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}><div><h3>Test runs</h3><input style={{ ...input, marginTop: 10, minWidth: 280 }} type="search" placeholder="Search runs and defects…" value={tableSearch} onChange={e => setTableSearch(e.target.value)} /></div><Button size="sm" onClick={() => downloadCsv(`${report.project.name}-runs.csv`, runs.map(run => ({ Name: run.name, Environment: run.env, Status: run.status, Owner: run.owner?.name ?? '', Started: run.startedAt, Assigned: run.assignedCases, Results: run.resultCount, Passed: run.counts.pass ?? 0, Failed: run.counts.fail ?? 0 })))}>Export runs CSV</Button></div>
+          <table className="table"><thead><tr><th>Run</th><th>Environment</th><th>Status</th><th>Owner</th><th>Started</th><th>Assigned</th><th>Pass</th><th>Fail</th></tr></thead><tbody>{runs.map(run => <tr key={run.id}><td><Link to={`/projects/${report.project.id}/runs`}>{run.name}</Link></td><td>{run.env}</td><td>{label(run.status)}</td><td>{run.owner?.name ?? '—'}</td><td>{displayDate(run.startedAt)}</td><td>{run.assignedCases}</td><td>{run.counts.pass ?? 0}</td><td>{run.counts.fail ?? 0}</td></tr>)}</tbody></table>
         </section>
 
         <section style={{ ...panel, overflowX: 'auto' }}>
@@ -112,6 +162,7 @@ export function ProjectInsightsPage() {
           <table className="table"><thead><tr><th>Defect</th><th>Severity</th><th>Status</th><th>Environment</th><th>Run / test case</th><th>Created</th></tr></thead><tbody>{defects.map(defect => <tr key={defect.id}><td><Link to={`/projects/${report.project.id}/defects`}>{defect.title}</Link></td><td>{label(defect.severity)}</td><td>{label(defect.status)}</td><td>{label(defect.detectedEnvironment)}</td><td>{defect.runResult ? `${defect.runResult.run.name} / ${defect.runResult.testCase.title}` : '—'}</td><td>{displayDate(defect.createdAt)}</td></tr>)}</tbody></table>
         </section>
       </>}
+      </div>
     </div>
   </AppLayout>;
 }
