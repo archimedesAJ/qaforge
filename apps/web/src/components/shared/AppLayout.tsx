@@ -71,6 +71,7 @@ export function AppLayout({ children, title, actions }: AppLayoutProps) {
   const rootNav: NavItem[] = user?.systemAdmin ? [
     { to: '/', label: 'Projects', icon: '▦' },
     { to: '/admin/dashboard', label: 'Admin dashboard', icon: '◈' },
+    { to: '/admin/project-insights', label: 'Project insights', icon: '▥' },
     { to: '/admin/users', label: 'Users', icon: '♟' },
     { to: '/admin/leadership', label: 'Leadership reviews', icon: '◆' },
     { to: '/admin/activity', label: 'Activity', icon: '≡' },

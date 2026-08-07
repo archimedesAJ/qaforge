@@ -869,6 +869,104 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
     };
   });
 
+  // GET /sysadmin/project-insights — detailed, filterable report for one project
+  app.get('/sysadmin/project-insights', async (req, reply) => {
+    const caller = req as unknown as { isSystemAdmin?: boolean };
+    if (!caller.isSystemAdmin) return reply.code(403).send({ error: 'System admin access required' });
+
+    const { projectId, since, until, environment } = req.query as Record<string, string>;
+    if (!projectId) return reply.code(400).send({ error: 'Project is required' });
+    const project = await prisma.project.findUnique({ where: { id: projectId }, select: { id: true, name: true, stage: true, category: true } });
+    if (!project) return reply.code(404).send({ error: 'Project not found' });
+
+    const gte = since ? new Date(`${since}T00:00:00.000Z`) : new Date(Date.now() - 30 * 86_400_000);
+    const lte = until ? new Date(`${until}T23:59:59.999Z`) : new Date();
+    if (Number.isNaN(gte.getTime()) || Number.isNaN(lte.getTime()) || gte > lte) return reply.code(400).send({ error: 'Invalid reporting date range' });
+    if (lte.getTime() - gte.getTime() > 366 * 86_400_000) return reply.code(400).send({ error: 'Reporting period cannot exceed 366 days' });
+
+    const runEnvironmentWhere = environment ? { env: { equals: environment, mode: 'insensitive' as const } } : {};
+    const detectedEnvironment = environment
+      ? environment.toLowerCase().includes('prod') ? 'production'
+        : environment.toLowerCase().includes('stag') || environment.toLowerCase().includes('uat') ? 'staging'
+          : environment.toLowerCase().includes('dev') || environment.toLowerCase().includes('local') ? 'development'
+            : 'testing'
+      : undefined;
+
+    const [cases, runs, filedDefects, resolvedDefects, currentOpenDefects, staleCases] = await Promise.all([
+      prisma.testCase.findMany({ where: { projectId, archived: false }, select: { id: true, type: true } }),
+      prisma.testRun.findMany({
+        where: {
+          projectId,
+          ...runEnvironmentWhere,
+          OR: [
+            { startedAt: { gte, lte } },
+            { results: { some: { executedAt: { gte, lte } } } },
+          ],
+        },
+        orderBy: { startedAt: 'desc' },
+        select: {
+          id: true, name: true, env: true, source: true, status: true, triggeredBy: true, startedAt: true, endedAt: true,
+          runCases: { select: { testCaseId: true } },
+          results: {
+            where: { executedAt: { gte, lte } },
+            select: { id: true, testCaseId: true, status: true, executedAt: true, testCase: { select: { type: true } }, defects: { select: { id: true } } },
+          },
+        },
+      }),
+      prisma.defect.findMany({
+        where: { projectId, createdAt: { gte, lte }, ...(detectedEnvironment && { detectedEnvironment }) },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, title: true, severity: true, status: true, detectedEnvironment: true, createdAt: true, resolvedAt: true, externalRef: true, runResult: { select: { testCase: { select: { title: true } }, run: { select: { name: true } } } } },
+      }),
+      prisma.defect.findMany({
+        where: { projectId, resolvedAt: { gte, lte }, status: { in: ['resolved', 'closed'] }, ...(detectedEnvironment && { detectedEnvironment }) },
+        select: { id: true, createdAt: true, resolvedAt: true },
+      }),
+      prisma.defect.count({ where: { projectId, status: { in: ['open', 'in_progress'] }, ...(detectedEnvironment && { detectedEnvironment }) } }),
+      prisma.coverageSnapshot.count({ where: { projectId, state: 'stale' } }),
+    ]);
+
+    const userIds = [...new Set(runs.flatMap(run => run.triggeredBy ? [run.triggeredBy] : []))];
+    const users = userIds.length > 0 ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, email: true } }) : [];
+    const userById = new Map(users.map(user => [user.id, user]));
+    const results = runs.flatMap(run => run.results);
+    const resultCounts = Object.fromEntries(['pass', 'fail', 'blocked', 'skipped', 'not_applicable'].map(status => [status, results.filter(result => result.status === status).length]));
+    const conclusive = resultCounts.pass + resultCounts.fail;
+    const passRate = conclusive > 0 ? Math.round(resultCounts.pass / conclusive * 100) : null;
+    const averageResolutionHours = resolvedDefects.length > 0
+      ? Math.round(resolvedDefects.reduce((sum, defect) => sum + ((defect.resolvedAt?.getTime() ?? defect.createdAt.getTime()) - defect.createdAt.getTime()), 0) / resolvedDefects.length / 3_600_000 * 10) / 10
+      : null;
+
+    const dayKey = (date: Date) => date.toISOString().slice(0, 10);
+    const trends: Array<{ date: string; executed: number; passed: number; failed: number; passRate: number | null; defectsCreated: number; defectsResolved: number }> = [];
+    for (let cursor = new Date(gte); cursor <= lte; cursor.setUTCDate(cursor.getUTCDate() + 1)) trends.push({ date: dayKey(cursor), executed: 0, passed: 0, failed: 0, passRate: null, defectsCreated: 0, defectsResolved: 0 });
+    const dayMap = new Map(trends.map(day => [day.date, day]));
+    results.forEach(result => { const day = dayMap.get(dayKey(result.executedAt)); if (!day) return; day.executed++; if (result.status === 'pass') day.passed++; if (result.status === 'fail') day.failed++; });
+    filedDefects.forEach(defect => { const day = dayMap.get(dayKey(defect.createdAt)); if (day) day.defectsCreated++; });
+    resolvedDefects.forEach(defect => { if (!defect.resolvedAt) return; const day = dayMap.get(dayKey(defect.resolvedAt)); if (day) day.defectsResolved++; });
+    trends.forEach(day => { const total = day.passed + day.failed; day.passRate = total > 0 ? Math.round(day.passed / total * 100) : null; });
+
+    const typeLabels: Record<string, string> = { manual: 'Manual', functional: 'Functional', ui_auto: 'UI automation', api: 'API', perf: 'Performance', exploratory: 'Exploratory' };
+    const executedCaseIds = new Set(results.map(result => result.testCaseId));
+    const assignedCaseIds = new Set(runs.flatMap(run => run.runCases.map(runCase => runCase.testCaseId)));
+    const failedCaseIds = new Set(results.filter(result => result.status === 'fail').map(result => result.testCaseId));
+    const linkedFailureIds = new Set(results.filter(result => result.status === 'fail' && result.defects.length > 0).map(result => result.testCaseId));
+
+    return {
+      project, filters: { since: gte, until: lte, environment: environment || null },
+      environments: [...new Set(runs.map(run => run.env))].sort(),
+      summary: { totalCases: cases.length, runs: runs.length, executedCases: executedCaseIds.size, results: results.length, passRate, defectsCreated: filedDefects.length, defectsResolved: resolvedDefects.length, openDefects: currentOpenDefects, staleCases, averageResolutionHours },
+      executionStatus: Object.entries(resultCounts).map(([name, value]) => ({ name, value })),
+      defectsBySeverity: ['critical', 'high', 'medium', 'low'].map(name => ({ name, value: filedDefects.filter(defect => defect.severity === name).length })),
+      defectsByStatus: ['open', 'in_progress', 'resolved', 'closed', 'wont_fix'].map(name => ({ name, value: filedDefects.filter(defect => defect.status === name).length })),
+      trends,
+      coverageByType: Object.keys(typeLabels).map(type => ({ name: typeLabels[type], total: cases.filter(testCase => testCase.type === type).length, executed: results.filter(result => result.testCase.type === type).reduce((ids, result) => ids.add(result.testCaseId), new Set<string>()).size })),
+      traceability: [{ name: 'Project cases', value: cases.length }, { name: 'Assigned to runs', value: assignedCaseIds.size }, { name: 'Executed', value: executedCaseIds.size }, { name: 'Failed', value: failedCaseIds.size }, { name: 'Failures with defects', value: linkedFailureIds.size }],
+      runs: runs.slice(0, 100).map(run => ({ id: run.id, name: run.name, env: run.env, source: run.source, status: run.status, startedAt: run.startedAt, endedAt: run.endedAt, owner: run.triggeredBy ? userById.get(run.triggeredBy) ?? null : null, assignedCases: run.runCases.length, resultCount: run.results.length, counts: Object.fromEntries(['pass', 'fail', 'blocked', 'skipped'].map(status => [status, run.results.filter(result => result.status === status).length])) })),
+      defects: filedDefects.slice(0, 200),
+    };
+  });
+
   // GET /sysadmin/activity — paginated activity log (sysadmin only)
   app.get('/sysadmin/activity', async (req, reply) => {
     const caller = req as unknown as { isSystemAdmin?: boolean };
