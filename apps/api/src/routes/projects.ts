@@ -818,13 +818,15 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
       };
     });
 
+    const active = rows.filter(row => row.active).sort((a, b) => b.lastActivityAt.getTime() - a.lastActivityAt.getTime() || a.name.localeCompare(b.name));
     const inactive = rows.filter(row => !row.active).sort((a, b) => b.daysInactive - a.daysInactive || a.name.localeCompare(b.name));
     return {
       since: sinceDate,
       until: untilDate,
       totalProjects: rows.length,
-      activeProjects: rows.length - inactive.length,
+      activeProjects: active.length,
       inactiveProjects: inactive.length,
+      active,
       inactive,
     };
   });

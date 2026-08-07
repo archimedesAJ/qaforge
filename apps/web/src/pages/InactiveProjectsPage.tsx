@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { AppLayout } from '../components/shared/AppLayout';
-import { Alert, Button, Spinner, StatCard } from '../components/shared/ui';
+import { Alert, Button, Modal, Spinner, StatCard } from '../components/shared/ui';
 import { api } from '../lib/api';
 
 type Preset = '7' | '30' | 'custom';
@@ -24,6 +24,7 @@ interface InactiveResponse {
   totalProjects: number;
   activeProjects: number;
   inactiveProjects: number;
+  active: InactiveProject[];
   inactive: InactiveProject[];
 }
 
@@ -63,6 +64,7 @@ export function InactiveProjectsPage() {
   const [preset, setPreset] = useState<Preset>('7');
   const [customFrom, setCustomFrom] = useState(isoDate(new Date(today.getTime() - 7 * dayMs)));
   const [customTo, setCustomTo] = useState(isoDate(today));
+  const [showActive, setShowActive] = useState(false);
   const to = preset === 'custom' ? customTo : isoDate(today);
   const from = preset === 'custom' ? customFrom : isoDate(new Date(today.getTime() - (Number(preset) - 1) * dayMs));
 
@@ -102,9 +104,35 @@ export function InactiveProjectsPage() {
       {data && <>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 12, marginBottom: 18 }}>
           <StatCard label="All projects" value={data.totalProjects} />
-          <StatCard label="Active in period" value={data.activeProjects} color="#16a34a" />
+          <button
+            type="button"
+            onClick={() => setShowActive(true)}
+            disabled={!data.active.length}
+            title="View active projects"
+            style={{ appearance: 'none', border: 0, padding: 0, background: 'transparent', textAlign: 'left', cursor: data.active.length ? 'pointer' : 'default' }}
+          >
+            <StatCard label="Active in period — click to view" value={data.activeProjects} color="#16a34a" />
+          </button>
           <StatCard label="Inactive in period" value={data.inactiveProjects} color={data.inactiveProjects ? '#dc2626' : '#16a34a'} />
         </div>
+
+        <Modal open={showActive} onClose={() => setShowActive(false)} title={`Active projects (${data.active.length})`} maxWidth={900}>
+          <p style={{ margin: '0 0 16px', color: 'var(--gray-500)', fontSize: '0.875rem' }}>
+            Projects that recorded QA activity from {displayDate(from)} to {displayDate(to)}.
+          </p>
+          <div style={{ overflowX: 'auto', maxHeight: '60vh' }}>
+            <table className="table">
+              <thead><tr><th>Project</th><th>Stage</th><th>Latest activity</th><th>Activity type</th><th>Cases</th><th>Runs</th><th>Defects</th></tr></thead>
+              <tbody>{data.active.map(project => <tr key={project.id}>
+                <td><Link to={`/projects/${project.id}`} onClick={() => setShowActive(false)}>{project.name}</Link><div style={{ color: 'var(--gray-400)', fontSize: '0.75rem' }}>{project.category ?? 'Uncategorised'}</div></td>
+                <td>{displayLabel(project.stage)}</td>
+                <td>{displayDate(project.lastActivityAt)}</td>
+                <td>{displayLabel(project.lastActivityType)}</td>
+                <td>{project.counts.cases}</td><td>{project.counts.runs}</td><td>{project.counts.defects}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+        </Modal>
 
         <section className="card" style={{ overflowX: 'auto' }}>
           {data.inactive.length === 0 ?
