@@ -6,6 +6,7 @@ import { authenticate, requireRole } from '../middleware/auth.js';
 import { sendInviteEmail, sendProjectAddedEmail } from '../services/email.js';
 import { logActivity } from '../lib/activityLog.js';
 import { processDigest } from '../jobs/weeklyDigest.js';
+import { generateAdminBrief } from '../services/openaiAdminBrief.js';
 
 const CATEGORIES = ['client-facing', 'internal', 'infrastructure', 'third-party'] as const;
 const STAGES     = ['live', 'in_development', 'new'] as const;
@@ -26,6 +27,11 @@ const UpdateProjectSchema = z.object({
 const InviteSchema = z.object({
   email: z.string().email(),
   role:  z.enum(['manager', 'editor', 'viewer']).default('editor'),
+});
+
+const AdminBriefRequestSchema = z.object({
+  question: z.string().trim().min(3).max(500).default('What is happening today?'),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
 export const projectsRoutes: FastifyPluginAsync = async (app) => {
@@ -1042,6 +1048,101 @@ export const projectsRoutes: FastifyPluginAsync = async (app) => {
       runs: runs.slice(0, 100).map(run => ({ id: run.id, name: run.name, env: run.env, source: run.source, status: run.status, startedAt: run.startedAt, endedAt: run.endedAt, owner: run.triggeredBy ? userById.get(run.triggeredBy) ?? null : null, assignedCases: run.runCases.length, resultCount: run.results.length, counts: Object.fromEntries(['pass', 'fail', 'blocked', 'skipped'].map(status => [status, run.results.filter(result => result.status === status).length])) })),
       defects: filedDefects.slice(0, 200),
     };
+  });
+
+  // POST /sysadmin/ai-brief — grounded AI summary of one day's QA activity
+  app.post('/sysadmin/ai-brief', async (req, reply) => {
+    const caller = req as unknown as { isSystemAdmin?: boolean };
+    if (!caller.isSystemAdmin) return reply.code(403).send({ error: 'System admin access required' });
+    const parsed = AdminBriefRequestSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.errors[0]?.message ?? 'Invalid request' });
+
+    const date = parsed.data.date ?? new Date().toISOString().slice(0, 10);
+    const start = new Date(`${date}T00:00:00.000Z`);
+    const end = new Date(`${date}T23:59:59.999Z`);
+    if (Number.isNaN(start.getTime())) return reply.code(400).send({ error: 'Invalid date' });
+
+    const [projects, runsStarted, runsClosed, results, cases, defectsFiled, defectsResolved, plans, activities] = await Promise.all([
+      prisma.project.findMany({ select: { id: true, name: true } }),
+      prisma.testRun.findMany({ where: { startedAt: { gte: start, lte: end } }, select: { id: true, projectId: true } }),
+      prisma.testRun.findMany({ where: { endedAt: { gte: start, lte: end }, status: 'closed' }, select: { id: true, projectId: true } }),
+      prisma.runResult.findMany({ where: { executedAt: { gte: start, lte: end } }, select: { status: true, run: { select: { projectId: true } } } }),
+      prisma.testCase.findMany({ where: { createdAt: { gte: start, lte: end }, archived: false }, select: { projectId: true } }),
+      prisma.defect.findMany({ where: { createdAt: { gte: start, lte: end } }, select: { projectId: true } }),
+      prisma.defect.findMany({ where: { resolvedAt: { gte: start, lte: end }, status: { in: ['resolved', 'closed'] } }, select: { projectId: true } }),
+      prisma.testPlan.findMany({ where: { createdAt: { gte: start, lte: end } }, select: { projectId: true } }),
+      prisma.activityLog.findMany({
+        where: { createdAt: { gte: start, lte: end } },
+        orderBy: { createdAt: 'desc' },
+        take: 300,
+        select: { createdAt: true, userName: true, userEmail: true, action: true, projectId: true, projectName: true, entityName: true },
+      }),
+    ]);
+
+    const projectName = new Map(projects.map(project => [project.id, project.name]));
+    type ProjectFacts = {
+      name: string; runsStarted: number; runsClosed: number; testsExecuted: number; passed: number; failed: number;
+      blocked: number; casesCreated: number; defectsFiled: number; defectsResolved: number; plansCreated: number;
+    };
+    const facts = new Map<string, ProjectFacts>();
+    const getFacts = (projectId: string) => {
+      let row = facts.get(projectId);
+      if (!row) {
+        row = { name: projectName.get(projectId) ?? 'Unknown project', runsStarted: 0, runsClosed: 0, testsExecuted: 0, passed: 0, failed: 0, blocked: 0, casesCreated: 0, defectsFiled: 0, defectsResolved: 0, plansCreated: 0 };
+        facts.set(projectId, row);
+      }
+      return row;
+    };
+    runsStarted.forEach(run => getFacts(run.projectId).runsStarted++);
+    runsClosed.forEach(run => getFacts(run.projectId).runsClosed++);
+    results.forEach(result => {
+      const row = getFacts(result.run.projectId);
+      row.testsExecuted++;
+      if (result.status === 'pass') row.passed++;
+      if (result.status === 'fail') row.failed++;
+      if (result.status === 'blocked') row.blocked++;
+    });
+    cases.forEach(testCase => getFacts(testCase.projectId).casesCreated++);
+    defectsFiled.forEach(defect => getFacts(defect.projectId).defectsFiled++);
+    defectsResolved.forEach(defect => getFacts(defect.projectId).defectsResolved++);
+    plans.forEach(plan => getFacts(plan.projectId).plansCreated++);
+    activities.forEach(activity => { if (activity.projectId) getFacts(activity.projectId); });
+
+    const projectFacts = [...facts.values()].sort((a, b) => b.testsExecuted - a.testsExecuted || a.name.localeCompare(b.name));
+    const totals = projectFacts.reduce((total, row) => ({
+      activeProjects: total.activeProjects,
+      runsStarted: total.runsStarted + row.runsStarted,
+      runsClosed: total.runsClosed + row.runsClosed,
+      testsExecuted: total.testsExecuted + row.testsExecuted,
+      passed: total.passed + row.passed,
+      failed: total.failed + row.failed,
+      blocked: total.blocked + row.blocked,
+      skipped: total.skipped + (row.testsExecuted - row.passed - row.failed - row.blocked),
+      casesCreated: total.casesCreated + row.casesCreated,
+      defectsFiled: total.defectsFiled + row.defectsFiled,
+      defectsResolved: total.defectsResolved + row.defectsResolved,
+      plansCreated: total.plansCreated + row.plansCreated,
+    }), { activeProjects: projectFacts.length, runsStarted: 0, runsClosed: 0, testsExecuted: 0, passed: 0, failed: 0, blocked: 0, skipped: 0, casesCreated: 0, defectsFiled: 0, defectsResolved: 0, plansCreated: 0 });
+
+    try {
+      const brief = await generateAdminBrief({
+        date,
+        question: parsed.data.question,
+        totals,
+        projects: projectFacts,
+        activities: activities.map(activity => ({
+          at: activity.createdAt.toISOString(),
+          user: activity.userName || activity.userEmail,
+          action: activity.action,
+          project: activity.projectName ?? (activity.projectId ? projectName.get(activity.projectId) : null),
+          item: activity.entityName,
+        })),
+      }, (req.user as { userId: string }).userId);
+      return { date, question: parsed.data.question, totals, brief, evidenceCount: activities.length };
+    } catch (error) {
+      req.log.error(error, 'Failed to generate admin AI brief');
+      return reply.code(502).send({ error: error instanceof Error ? error.message : 'Unable to generate AI brief' });
+    }
   });
 
   // GET /sysadmin/activity — paginated activity log (sysadmin only)

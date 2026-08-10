@@ -73,6 +73,7 @@ export function AppLayout({ children, title, actions }: AppLayoutProps) {
     { to: '/admin/dashboard', label: 'Admin dashboard', icon: '◈' },
     { to: '/admin/project-insights', label: 'Project insights', icon: '▥' },
     { to: '/admin/inactive-projects', label: 'Inactive projects', icon: '◷' },
+    { to: '/admin/ai-brief', label: 'AI daily brief', icon: '✦' },
     { to: '/admin/users', label: 'Users', icon: '♟' },
     { to: '/admin/leadership', label: 'Leadership reviews', icon: '◆' },
     { to: '/admin/activity', label: 'Activity', icon: '≡' },

@@ -18,6 +18,7 @@ import { AiPage } from './pages/AiPage';
 import { LeadershipReviewsPage } from './pages/LeadershipReviewsPage';
 import { ProjectInsightsPage } from './pages/ProjectInsightsPage';
 import { InactiveProjectsPage } from './pages/InactiveProjectsPage';
+import { AdminAiBriefPage } from './pages/AdminAiBriefPage';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -42,6 +43,7 @@ export function App() {
       <Route path="/admin/leadership"                   element={<RequireAuth><LeadershipReviewsPage /></RequireAuth>} />
       <Route path="/admin/project-insights"             element={<RequireAuth><ProjectInsightsPage /></RequireAuth>} />
       <Route path="/admin/inactive-projects"             element={<RequireAuth><InactiveProjectsPage /></RequireAuth>} />
+      <Route path="/admin/ai-brief"                      element={<RequireAuth><AdminAiBriefPage /></RequireAuth>} />
       <Route path="/projects/:projectId"                element={<RequireAuth><DashboardPage /></RequireAuth>} />
       <Route path="/projects/:projectId/cases"          element={<RequireAuth><CasesPage /></RequireAuth>} />
       <Route path="/projects/:projectId/runs"           element={<RequireAuth><RunsPage /></RequireAuth>} />
